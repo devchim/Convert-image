@@ -344,6 +344,88 @@
       line-height: 1.5;
     }
 
+    /* Location input with autocomplete */
+    .location-field {
+      position: relative;
+      margin-bottom: 16px;
+    }
+    .location-field label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.85rem;
+      color: #999;
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+    .location-input-wrapper {
+      position: relative;
+    }
+    .location-input-wrapper input {
+      width: 100%;
+      padding: 10px 14px 10px 36px;
+      border-radius: 8px;
+      border: 1px solid #2a2a45;
+      background: #0f0f1a;
+      color: #e0e0e0;
+      font-size: 0.95rem;
+      font-family: inherit;
+      transition: border-color 0.2s;
+    }
+    .location-input-wrapper input:focus {
+      outline: none;
+      border-color: #f59e0b;
+    }
+    .location-input-wrapper input::placeholder { color: #555; }
+    .location-input-wrapper .loc-icon {
+      position: absolute;
+      left: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 1rem;
+      pointer-events: none;
+    }
+    .location-suggestions {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: #16162a;
+      border: 1px solid #3b3b5c;
+      border-top: none;
+      border-radius: 0 0 8px 8px;
+      max-height: 200px;
+      overflow-y: auto;
+      z-index: 50;
+      display: none;
+    }
+    .location-suggestions.active { display: block; }
+    .location-suggestion {
+      padding: 8px 14px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      color: #ccc;
+      transition: background 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .location-suggestion:hover { background: #1e1e38; color: #f59e0b; }
+    .location-suggestion .loc-region { color: #666; font-size: 0.75rem; }
+    .location-btn-apply {
+      background: #f59e0b;
+      color: #0f0f1a;
+      border: none;
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 6px;
+      transition: background 0.2s;
+    }
+    .location-btn-apply:hover { background: #d97706; }
+
     /* Detected tags */
     .detected-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
     .detected-tag {
@@ -432,6 +514,59 @@
   const cardsContainer = document.getElementById('cardsContainer');
   const batchTitle = document.getElementById('batchTitle');
   const toast = document.getElementById('toast');
+
+  // ===== Cities Database =====
+  const cities = [
+    // Maroc
+    { name: 'Agadir', region: 'Souss-Massa', country: 'Maroc', landmarks: ['plage', 'corniche', 'kasbah', 'souk'] },
+    { name: 'Casablanca', region: 'Casablanca-Settat', country: 'Maroc', landmarks: ['mosquee Hassan II', 'corniche Ain Diab', 'medina ancienne'] },
+    { name: 'Marrakech', region: 'Marrakech-Safi', country: 'Maroc', landmarks: ['place Jemaa el-Fna', 'jardin Majorelle', 'palais Bahia', 'medina', 'koutoubia'] },
+    { name: 'Rabat', region: 'Rabat-Sale-Kenitra', country: 'Maroc', landmarks: ['kasbah des Oudayas', 'tour Hassan', 'mausolee Mohammed V', 'medina'] },
+    { name: 'Fes', region: 'Fes-Meknes', country: 'Maroc', landmarks: ['medina Fes el-Bali', 'tanneries Chouara', 'mosquee Qaraouiyine', 'Bab Boujloud'] },
+    { name: 'Tanger', region: 'Tanger-Tetouan-Al Hoceima', country: 'Maroc', landmarks: ['cap Spartel', 'grottes d\'Hercule', 'kasbah', 'medina'] },
+    { name: 'Meknes', region: 'Fes-Meknes', country: 'Maroc', landmarks: ['Bab Mansour', 'place El Hedim', 'mausolee Moulay Ismail'] },
+    { name: 'Essaouira', region: 'Marrakech-Safi', country: 'Maroc', landmarks: ['port', 'remparts', 'medina', 'plage'] },
+    { name: 'Chefchaouen', region: 'Tanger-Tetouan-Al Hoceima', country: 'Maroc', landmarks: ['medina bleue', 'kasbah', 'cascade Akchour'] },
+    { name: 'Ouarzazate', region: 'Draa-Tafilalet', country: 'Maroc', landmarks: ['kasbah Ait Benhaddou', 'studios cinema', 'kasbah Taourirt'] },
+    { name: 'Tetouan', region: 'Tanger-Tetouan-Al Hoceima', country: 'Maroc', landmarks: ['medina', 'place Hassan II', 'musee archeologique'] },
+    { name: 'Ifrane', region: 'Fes-Meknes', country: 'Maroc', landmarks: ['foret de cedres', 'lac Dayet Aoua', 'lion de pierre'] },
+    { name: 'Dakhla', region: 'Dakhla-Oued Ed-Dahab', country: 'Maroc', landmarks: ['lagon', 'plage', 'kitesurf'] },
+    { name: 'Nador', region: 'Oriental', country: 'Maroc', landmarks: ['lagune Marchica', 'corniche'] },
+    { name: 'Oujda', region: 'Oriental', country: 'Maroc', landmarks: ['medina', 'parc Lalla Aicha'] },
+    { name: 'Kenitra', region: 'Rabat-Sale-Kenitra', country: 'Maroc', landmarks: ['foret Mamora', 'plage Mehdia'] },
+    { name: 'Sale', region: 'Rabat-Sale-Kenitra', country: 'Maroc', landmarks: ['medina', 'plage'] },
+    { name: 'Safi', region: 'Marrakech-Safi', country: 'Maroc', landmarks: ['poterie', 'ksar el-Bahr', 'medina'] },
+    { name: 'El Jadida', region: 'Casablanca-Settat', country: 'Maroc', landmarks: ['cite portugaise', 'citerne', 'plage'] },
+    { name: 'Beni Mellal', region: 'Beni Mellal-Khenifra', country: 'Maroc', landmarks: ['kasbah Ras el-Ain', 'cascades Ouzoud'] },
+    { name: 'Tiznit', region: 'Souss-Massa', country: 'Maroc', landmarks: ['medina', 'bijouterie', 'remparts'] },
+    { name: 'Taroudant', region: 'Souss-Massa', country: 'Maroc', landmarks: ['remparts', 'souk', 'palmeraie'] },
+    { name: 'Merzouga', region: 'Draa-Tafilalet', country: 'Maroc', landmarks: ['dunes Erg Chebbi', 'desert', 'bivouac'] },
+    { name: 'Tinghir', region: 'Draa-Tafilalet', country: 'Maroc', landmarks: ['gorges du Todra', 'palmeraie'] },
+    { name: 'Al Hoceima', region: 'Tanger-Tetouan-Al Hoceima', country: 'Maroc', landmarks: ['plage Quemado', 'parc national'] },
+    // Villes internationales populaires
+    { name: 'Paris', region: 'Ile-de-France', country: 'France', landmarks: ['tour Eiffel', 'Champs-Elysees', 'Notre-Dame', 'Louvre'] },
+    { name: 'Istanbul', region: 'Marmara', country: 'Turquie', landmarks: ['Sainte-Sophie', 'mosquee Bleue', 'Grand Bazar', 'Bosphore'] },
+    { name: 'Dubai', region: 'Dubai', country: 'Emirats Arabes Unis', landmarks: ['Burj Khalifa', 'Palm Jumeirah', 'Dubai Mall'] },
+    { name: 'Barcelona', region: 'Catalogne', country: 'Espagne', landmarks: ['Sagrada Familia', 'Parc Guell', 'Ramblas'] },
+    { name: 'Rome', region: 'Latium', country: 'Italie', landmarks: ['Colisee', 'Vatican', 'fontaine de Trevi'] },
+    { name: 'Londres', region: 'Angleterre', country: 'Royaume-Uni', landmarks: ['Big Ben', 'Tower Bridge', 'Buckingham Palace'] },
+    { name: 'New York', region: 'New York', country: 'Etats-Unis', landmarks: ['Statue de la Liberte', 'Times Square', 'Central Park'] },
+    { name: 'Tokyo', region: 'Kanto', country: 'Japon', landmarks: ['temple Senso-ji', 'tour de Tokyo', 'Shibuya'] },
+    { name: 'Le Caire', region: 'Le Caire', country: 'Egypte', landmarks: ['pyramides de Gizeh', 'sphinx', 'musee egyptien'] },
+    { name: 'Tunis', region: 'Tunis', country: 'Tunisie', landmarks: ['medina', 'Carthage', 'Sidi Bou Said'] },
+    { name: 'Alger', region: 'Alger', country: 'Algerie', landmarks: ['casbah', 'Notre-Dame d\'Afrique', 'mosquee Ketchaoua'] },
+  ];
+
+  function searchCities(query) {
+    if (!query || query.length < 2) return [];
+    const q = query.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    return cities.filter(c => {
+      const name = c.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const region = c.region.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const country = c.country.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      return name.includes(q) || region.includes(q) || country.includes(q);
+    }).slice(0, 8);
+  }
 
   // ===== AI Model =====
   let model = null;
@@ -673,11 +808,21 @@
 
   // ===== Smart SEO Generation =====
 
-  function generateSmartSeo(predictions, exifData, geoData) {
+  function generateSmartSeo(predictions, exifData, geoData, manualCity) {
     const tags = [];
     let filename = '';
     let alt = '';
     let title = '';
+
+    // Manual city overrides geoData
+    if (manualCity) {
+      geoData = {
+        city: manualCity.name,
+        region: manualCity.region,
+        country: manualCity.country,
+        displayName: `${manualCity.name}, ${manualCity.region}, ${manualCity.country}`
+      };
+    }
 
     const hasGeo = geoData && geoData.city;
     const hasScene = predictions && predictions.length > 0;
@@ -904,6 +1049,16 @@
 
           <div id="${id}-exif" class="exif-info" style="display:none;"></div>
 
+          <div class="location-field" id="${id}-locfield">
+            <label>📍 Lieu / Ville <span class="tag-geo">LOCALISATION</span></label>
+            <div class="location-input-wrapper">
+              <span class="loc-icon">🔍</span>
+              <input type="text" id="${id}-location" placeholder="Tapez une ville (ex: Rabat, Agadir, Marrakech...)" autocomplete="off">
+              <div class="location-suggestions" id="${id}-suggestions"></div>
+            </div>
+            <div class="hint">Indiquez le lieu pour generer des noms SEO precis (auto-detecte si GPS disponible)</div>
+          </div>
+
           <div id="${id}-tags" class="detected-tags" style="margin-bottom: 16px;"></div>
 
           <div class="field">
@@ -1018,6 +1173,74 @@
           document.getElementById(`${id}-geolabel2`).style.display = 'inline';
           document.getElementById(`${id}-geolabel3`).style.display = 'inline';
         }
+
+        // --- Location autocomplete ---
+        const locationInput = document.getElementById(`${id}-location`);
+        const suggestionsEl = document.getElementById(`${id}-suggestions`);
+        let selectedCity = null;
+
+        // Pre-fill if GPS detected
+        if (geoData && geoData.city) {
+          locationInput.value = `${geoData.city}, ${geoData.country}`;
+          locationInput.style.borderColor = '#34d399';
+        }
+
+        locationInput.addEventListener('input', () => {
+          const q = locationInput.value;
+          const matches = searchCities(q);
+          if (matches.length > 0 && q.length >= 2) {
+            suggestionsEl.innerHTML = matches.map((c, i) =>
+              `<div class="location-suggestion" data-index="${i}">
+                <span>📍 ${c.name}</span>
+                <span class="loc-region">${c.region}, ${c.country}</span>
+              </div>`
+            ).join('');
+            suggestionsEl.classList.add('active');
+            suggestionsEl._matches = matches;
+          } else {
+            suggestionsEl.classList.remove('active');
+          }
+        });
+
+        suggestionsEl.addEventListener('click', (ev) => {
+          const item = ev.target.closest('.location-suggestion');
+          if (!item) return;
+          const idx = parseInt(item.dataset.index);
+          const city = suggestionsEl._matches[idx];
+          selectedCity = city;
+          locationInput.value = `${city.name}, ${city.country}`;
+          locationInput.style.borderColor = '#34d399';
+          suggestionsEl.classList.remove('active');
+
+          // Regenerate SEO with city
+          const newSeo = generateSmartSeo(predictions, exifData, geoData, city);
+          filenameInput.value = newSeo.filename;
+          altInput.value = newSeo.alt;
+          titleInput.value = newSeo.title;
+          updateHtmlPreview();
+
+          // Update tags
+          tagsContainer.innerHTML = newSeo.tags.map(t => {
+            const cls = t.type === 'geo' ? 'detected-tag geo-tag' : 'detected-tag';
+            const icon = t.type === 'geo' ? '📍 ' : '';
+            const conf = t.confidence ? `<span class="confidence">${t.confidence}%</span>` : '';
+            return `<span class="${cls}">${icon}${t.translated}${conf}</span>`;
+          }).join('');
+
+          // Show GPS badges
+          document.getElementById(`${id}-geolabel`).style.display = 'inline';
+          document.getElementById(`${id}-geolabel2`).style.display = 'inline';
+          document.getElementById(`${id}-geolabel3`).style.display = 'inline';
+
+          showToast(`Lieu defini : ${city.name}, ${city.country}`);
+        });
+
+        // Close suggestions on click outside
+        document.addEventListener('click', (ev) => {
+          if (!ev.target.closest(`#${id}-locfield`)) {
+            suggestionsEl.classList.remove('active');
+          }
+        });
 
         // Display tags
         if (seo.tags && seo.tags.length > 0) {
