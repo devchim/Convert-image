@@ -441,6 +441,26 @@
       border-color: #5a4a1a;
       background: #1e1a10;
     }
+    .detected-tag.landmark-tag {
+      color: #ef4444;
+      border-color: #5a1a1a;
+      background: #1e1010;
+    }
+    .detected-tag.vision-tag {
+      color: #3b82f6;
+      border-color: #1a3a5a;
+      background: #101a2e;
+    }
+    .detected-tag.web-tag {
+      color: #10b981;
+      border-color: #1a4a3a;
+      background: #101e1a;
+    }
+    .detected-tag.guess-tag {
+      color: #f472b6;
+      border-color: #4a1a3a;
+      background: #1e101a;
+    }
     .detected-tag .confidence { color: #666; margin-left: 4px; }
 
     /* Responsive */
@@ -568,7 +588,100 @@
     }).slice(0, 8);
   }
 
-  // ===== AI Model =====
+  // ===== Google Cloud Vision API =====
+  const VISION_API_KEY = 'AIzaSyDhbUSnCiqeHFNHQ1zuHGtnvUrNvJ1oRew';
+
+  async function analyzeWithGoogleVision(file) {
+    try {
+      // Convert file to base64
+      const base64 = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.readAsDataURL(file);
+      });
+
+      const response = await fetch(
+        `https://vision.googleapis.com/v1/images:annotate?key=${VISION_API_KEY}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            requests: [{
+              image: { content: base64 },
+              features: [
+                { type: 'LANDMARK_DETECTION', maxResults: 5 },
+                { type: 'LABEL_DETECTION', maxResults: 10 },
+                { type: 'WEB_DETECTION', maxResults: 5 },
+              ]
+            }]
+          })
+        }
+      );
+
+      if (!response.ok) {
+        console.warn('Google Vision API error:', response.status);
+        return null;
+      }
+
+      const data = await response.json();
+      const result = data.responses?.[0];
+      if (!result) return null;
+
+      const visionData = {
+        landmarks: [],
+        labels: [],
+        webEntities: [],
+        bestGuessLabels: [],
+        location: null,
+      };
+
+      // Landmarks (ex: "Kasbah des Oudayas", "Tour Hassan")
+      if (result.landmarkAnnotations) {
+        visionData.landmarks = result.landmarkAnnotations.map(l => ({
+          name: l.description,
+          confidence: Math.round((l.score || 0) * 100),
+        }));
+        // Extract location from landmark
+        const firstLandmark = result.landmarkAnnotations[0];
+        if (firstLandmark?.locations?.[0]?.latLng) {
+          visionData.location = {
+            lat: firstLandmark.locations[0].latLng.latitude,
+            lon: firstLandmark.locations[0].latLng.longitude,
+          };
+        }
+      }
+
+      // Labels (ex: "Coast", "Beach", "City", "Architecture")
+      if (result.labelAnnotations) {
+        visionData.labels = result.labelAnnotations.map(l => ({
+          name: l.description,
+          confidence: Math.round((l.score || 0) * 100),
+        }));
+      }
+
+      // Web detection (best guesses + web entities)
+      if (result.webDetection) {
+        if (result.webDetection.bestGuessLabels) {
+          visionData.bestGuessLabels = result.webDetection.bestGuessLabels.map(l => l.label);
+        }
+        if (result.webDetection.webEntities) {
+          visionData.webEntities = result.webDetection.webEntities
+            .filter(e => e.description && e.score > 0.3)
+            .map(e => ({
+              name: e.description,
+              confidence: Math.round((e.score || 0) * 100),
+            }));
+        }
+      }
+
+      return visionData;
+    } catch (err) {
+      console.warn('Google Vision API failed:', err);
+      return null;
+    }
+  }
+
+  // ===== AI Model (MobileNet fallback) =====
   let model = null;
   let modelLoading = false;
 
@@ -808,7 +921,7 @@
 
   // ===== Smart SEO Generation =====
 
-  function generateSmartSeo(predictions, exifData, geoData, manualCity) {
+  function generateSmartSeo(predictions, exifData, geoData, manualCity, visionData) {
     const tags = [];
     let filename = '';
     let alt = '';
@@ -824,78 +937,120 @@
       };
     }
 
+    const hasVision = visionData && (visionData.landmarks.length > 0 || visionData.labels.length > 0);
+    const hasLandmark = visionData && visionData.landmarks.length > 0;
     const hasGeo = geoData && geoData.city;
     const hasScene = predictions && predictions.length > 0;
-    const hasExifDesc = exifData && exifData.description;
 
-    // Build scene description from MobileNet
-    let sceneLabels = [];
-    if (hasScene) {
-      sceneLabels = predictions.map(p => ({
-        label: p.className,
-        translated: translateLabel(p.className),
-        confidence: Math.round(p.probability * 100)
-      }));
-      sceneLabels.forEach(t => tags.push({ ...t, type: 'ai' }));
-    }
-
-    // Add geo tags
-    if (hasGeo) {
-      tags.unshift({ translated: geoData.city, confidence: 99, type: 'geo' });
-      if (geoData.country) {
-        tags.push({ translated: geoData.country, confidence: 99, type: 'geo' });
+    // === GOOGLE VISION: Best quality source ===
+    if (hasVision) {
+      // Add landmark tags
+      if (hasLandmark) {
+        visionData.landmarks.forEach(l => {
+          tags.push({ translated: l.name, confidence: l.confidence, type: 'landmark' });
+        });
       }
-    }
 
-    const mainScene = sceneLabels.length > 0 ? sceneLabels[0].translated : '';
+      // Add label tags (top 5)
+      visionData.labels.slice(0, 5).forEach(l => {
+        tags.push({ translated: l.name, confidence: l.confidence, type: 'vision' });
+      });
 
-    if (hasGeo && hasScene) {
-      // BEST CASE: GPS + AI vision
-      const city = geoData.city;
-      const country = geoData.country;
-      const scene = mainScene;
+      // Add web entities
+      visionData.webEntities.slice(0, 3).forEach(e => {
+        tags.push({ translated: e.name, confidence: e.confidence, type: 'web' });
+      });
 
-      filename = cleanForFilename(`${scene}-${city}-${country}`);
-      alt = capitalize(`${scene} a ${city}, ${country}`);
-      title = `Photo de ${scene} - ${city}, ${geoData.region || country}`;
+      // Add best guess
+      if (visionData.bestGuessLabels.length > 0) {
+        tags.push({ translated: visionData.bestGuessLabels[0], confidence: 95, type: 'guess' });
+      }
 
-    } else if (hasGeo) {
-      // GPS only, no meaningful AI
-      const city = geoData.city;
-      const country = geoData.country;
-      const region = geoData.region;
+      // Build SEO from vision data
+      if (hasLandmark) {
+        // LANDMARK DETECTED (ex: "Kasbah des Oudayas")
+        const landmark = visionData.landmarks[0].name;
+        const sceneLabel = visionData.labels.length > 0 ? visionData.labels[0].name.toLowerCase() : '';
+        const city = hasGeo ? geoData.city : '';
+        const country = hasGeo ? geoData.country : '';
 
-      filename = cleanForFilename(`photo-${city}-${country}`);
-      alt = capitalize(`Vue de ${city}, ${region || country}`);
-      title = `Photo de ${city} - ${region || country}`;
+        if (city) {
+          filename = cleanForFilename(`${landmark}-${city}-${country}`);
+          alt = `${landmark} a ${city}, ${country}`;
+          title = `Photo de ${landmark} - ${city}, ${country}`;
+        } else {
+          filename = cleanForFilename(landmark);
+          alt = landmark;
+          title = `Photo de ${landmark}`;
+        }
 
-    } else if (hasExifDesc) {
-      // Use embedded EXIF description
-      const desc = exifData.description;
-      filename = cleanForFilename(desc);
-      alt = capitalize(desc);
-      title = desc;
+        // Add geo tags if available
+        if (hasGeo) {
+          tags.push({ translated: geoData.city, confidence: 99, type: 'geo' });
+          tags.push({ translated: geoData.country, confidence: 99, type: 'geo' });
+        }
 
-    } else if (hasScene) {
-      // AI vision only
-      const main = sceneLabels[0].translated;
-      const mainCap = capitalize(main);
-
-      if (sceneLabels.length >= 2) {
-        const secondary = sceneLabels[1].translated;
-        filename = cleanForFilename(`${main}-${secondary}`);
-        alt = `${mainCap} - ${secondary}`;
-        title = `Photo de ${main} - ${secondary}`;
       } else {
-        filename = cleanForFilename(main);
-        alt = mainCap;
-        title = `Photo de ${main}`;
+        // NO LANDMARK but have labels
+        const bestGuess = visionData.bestGuessLabels.length > 0 ? visionData.bestGuessLabels[0] : '';
+        const topLabels = visionData.labels.slice(0, 3).map(l => l.name.toLowerCase());
+        const mainLabel = bestGuess || topLabels[0] || '';
+
+        if (hasGeo) {
+          const city = geoData.city;
+          const country = geoData.country;
+          filename = cleanForFilename(`${mainLabel}-${city}-${country}`);
+          alt = capitalize(`${mainLabel} a ${city}, ${country}`);
+          title = `Photo de ${mainLabel} - ${city}, ${geoData.region || country}`;
+          tags.push({ translated: city, confidence: 99, type: 'geo' });
+          tags.push({ translated: country, confidence: 99, type: 'geo' });
+        } else {
+          const secondary = topLabels[1] || '';
+          filename = cleanForFilename(`${mainLabel}${secondary ? '-' + secondary : ''}`);
+          alt = capitalize(mainLabel + (secondary ? ` - ${secondary}` : ''));
+          title = `Photo de ${mainLabel}`;
+        }
       }
 
     } else {
-      filename = 'image';
-      alt = 'Image';
-      title = 'Image';
+      // === FALLBACK: MobileNet + GPS ===
+      const hasOldScene = hasScene;
+      let sceneLabels = [];
+
+      if (hasOldScene) {
+        sceneLabels = predictions.map(p => ({
+          label: p.className,
+          translated: translateLabel(p.className),
+          confidence: Math.round(p.probability * 100)
+        }));
+        sceneLabels.forEach(t => tags.push({ ...t, type: 'ai' }));
+      }
+
+      if (hasGeo) {
+        tags.unshift({ translated: geoData.city, confidence: 99, type: 'geo' });
+        if (geoData.country) tags.push({ translated: geoData.country, confidence: 99, type: 'geo' });
+      }
+
+      const mainScene = sceneLabels.length > 0 ? sceneLabels[0].translated : '';
+
+      if (hasGeo && hasOldScene) {
+        filename = cleanForFilename(`${mainScene}-${geoData.city}-${geoData.country}`);
+        alt = capitalize(`${mainScene} a ${geoData.city}, ${geoData.country}`);
+        title = `Photo de ${mainScene} - ${geoData.city}, ${geoData.region || geoData.country}`;
+      } else if (hasGeo) {
+        filename = cleanForFilename(`photo-${geoData.city}-${geoData.country}`);
+        alt = capitalize(`Vue de ${geoData.city}, ${geoData.region || geoData.country}`);
+        title = `Photo de ${geoData.city} - ${geoData.region || geoData.country}`;
+      } else if (hasOldScene) {
+        const main = sceneLabels[0].translated;
+        filename = cleanForFilename(main);
+        alt = capitalize(main);
+        title = `Photo de ${main}`;
+      } else {
+        filename = 'image';
+        alt = 'Image';
+        title = 'Image';
+      }
     }
 
     // Add date to title if available
@@ -1131,10 +1286,12 @@
           document.getElementById(`${id}-autolabel`).textContent = `AUTO < 1 Mo (redim. ${optResult.resized.width}x${optResult.resized.height})`;
         }
 
-        // --- Run EXIF + AI in parallel ---
-        const [exifData, predictions] = await Promise.all([
+        // --- Run EXIF + AI + Google Vision in parallel ---
+        aiStatus.innerHTML = '<span class="ai-spinner"></span> Analyse IA + Google Vision + EXIF...';
+        const [exifData, predictions, visionData] = await Promise.all([
           extractExifData(file),
-          analyzeImage(document.getElementById(`${id}-imgel`))
+          analyzeImage(document.getElementById(`${id}-imgel`)),
+          analyzeWithGoogleVision(file)
         ]);
 
         // --- Geocoding if GPS available ---
@@ -1161,7 +1318,7 @@
         }
 
         // --- Generate smart SEO ---
-        const seo = generateSmartSeo(predictions, exifData, geoData);
+        const seo = generateSmartSeo(predictions, exifData, geoData, null, visionData);
 
         filenameInput.value = seo.filename;
         altInput.value = seo.alt;
@@ -1213,7 +1370,7 @@
           suggestionsEl.classList.remove('active');
 
           // Regenerate SEO with city
-          const newSeo = generateSmartSeo(predictions, exifData, geoData, city);
+          const newSeo = generateSmartSeo(predictions, exifData, geoData, city, visionData);
           filenameInput.value = newSeo.filename;
           altInput.value = newSeo.alt;
           titleInput.value = newSeo.title;
@@ -1221,8 +1378,13 @@
 
           // Update tags
           tagsContainer.innerHTML = newSeo.tags.map(t => {
-            const cls = t.type === 'geo' ? 'detected-tag geo-tag' : 'detected-tag';
-            const icon = t.type === 'geo' ? '📍 ' : '';
+            let cls = 'detected-tag';
+            let icon = '';
+            if (t.type === 'geo') { cls += ' geo-tag'; icon = '📍 '; }
+            else if (t.type === 'landmark') { cls += ' landmark-tag'; icon = '🏛️ '; }
+            else if (t.type === 'vision') { cls += ' vision-tag'; icon = '👁️ '; }
+            else if (t.type === 'web') { cls += ' web-tag'; icon = '🌐 '; }
+            else if (t.type === 'guess') { cls += ' guess-tag'; icon = '💡 '; }
             const conf = t.confidence ? `<span class="confidence">${t.confidence}%</span>` : '';
             return `<span class="${cls}">${icon}${t.translated}${conf}</span>`;
           }).join('');
@@ -1244,11 +1406,17 @@
 
         // Display tags
         if (seo.tags && seo.tags.length > 0) {
-          aiStatus.innerHTML = '&#10003; Analyse terminee';
+          const sourceLabel = visionData ? 'Google Vision' : 'MobileNet';
+          aiStatus.innerHTML = `&#10003; Analyse terminee (${sourceLabel})`;
           aiStatus.classList.add('done');
           tagsContainer.innerHTML = seo.tags.map(t => {
-            const cls = t.type === 'geo' ? 'detected-tag geo-tag' : 'detected-tag';
-            const icon = t.type === 'geo' ? '📍 ' : '';
+            let cls = 'detected-tag';
+            let icon = '';
+            if (t.type === 'geo') { cls += ' geo-tag'; icon = '📍 '; }
+            else if (t.type === 'landmark') { cls += ' landmark-tag'; icon = '🏛️ '; }
+            else if (t.type === 'vision') { cls += ' vision-tag'; icon = '👁️ '; }
+            else if (t.type === 'web') { cls += ' web-tag'; icon = '🌐 '; }
+            else if (t.type === 'guess') { cls += ' guess-tag'; icon = '💡 '; }
             const conf = t.confidence ? `<span class="confidence">${t.confidence}%</span>` : '';
             return `<span class="${cls}">${icon}${t.translated}${conf}</span>`;
           }).join('');
