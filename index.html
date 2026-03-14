@@ -593,10 +593,30 @@
 
   async function analyzeWithGoogleVision(file) {
     try {
-      // Convert file to base64
-      const base64 = await new Promise((resolve) => {
+      // Resize image to max 1600px before sending (Vision API has 10MB limit)
+      const base64 = await new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onload = () => {
+          const img = new Image();
+          img.onload = () => {
+            const MAX = 1600;
+            let w = img.naturalWidth, h = img.naturalHeight;
+            if (w > MAX || h > MAX) {
+              if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+              else { w = Math.round(w * MAX / h); h = MAX; }
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+            // Use JPEG for smaller payload
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            resolve(dataUrl.split(',')[1]);
+          };
+          img.onerror = () => reject(new Error('Image load failed'));
+          img.src = reader.result;
+        };
+        reader.onerror = () => reject(reader.error);
         reader.readAsDataURL(file);
       });
 
@@ -619,13 +639,18 @@
       );
 
       if (!response.ok) {
-        console.warn('Google Vision API error:', response.status);
+        const errText = await response.text().catch(() => '');
+        console.warn('Google Vision API error:', response.status, errText);
         return null;
       }
 
       const data = await response.json();
+      console.log('Google Vision API response:', JSON.stringify(data).substring(0, 500));
       const result = data.responses?.[0];
-      if (!result) return null;
+      if (!result || result.error) {
+        console.warn('Google Vision API empty/error result:', result?.error);
+        return null;
+      }
 
       const visionData = {
         landmarks: [],
@@ -991,29 +1016,49 @@
         }
 
       } else {
-        // NO LANDMARK but have labels
+        // NO LANDMARK but have labels - build descriptive SEO phrases
         const bestGuess = visionData.bestGuessLabels.length > 0 ? visionData.bestGuessLabels[0] : '';
-        const topLabels = visionData.labels.slice(0, 3).map(l => l.name.toLowerCase());
+        const topLabels = visionData.labels.slice(0, 4).map(l => l.name.toLowerCase());
         const mainLabel = bestGuess || topLabels[0] || '';
+        const secondary = topLabels[1] || '';
+        const third = topLabels[2] || '';
 
         if (hasGeo) {
           const city = geoData.city;
           const country = geoData.country;
-          filename = cleanForFilename(`${mainLabel}-${city}-${country}`);
-          alt = capitalize(`${mainLabel} a ${city}, ${country}`);
-          title = `Photo de ${mainLabel} - ${city}, ${geoData.region || country}`;
+          const region = geoData.region || country;
+
+          if (secondary) {
+            filename = cleanForFilename(`${mainLabel}-${secondary}-${city}-${country}`);
+            alt = capitalize(`${mainLabel} et ${secondary} a ${city}, ${country}`);
+            title = `${capitalize(mainLabel)} avec ${secondary} - ${city}, ${region}`;
+          } else {
+            filename = cleanForFilename(`${mainLabel}-${city}-${country}`);
+            alt = capitalize(`${mainLabel} a ${city}, ${country}`);
+            title = `${capitalize(mainLabel)} - ${city}, ${region}`;
+          }
           tags.push({ translated: city, confidence: 99, type: 'geo' });
           tags.push({ translated: country, confidence: 99, type: 'geo' });
         } else {
-          const secondary = topLabels[1] || '';
-          filename = cleanForFilename(`${mainLabel}${secondary ? '-' + secondary : ''}`);
-          alt = capitalize(mainLabel + (secondary ? ` - ${secondary}` : ''));
-          title = `Photo de ${mainLabel}`;
+          // Vision labels only, no location - descriptive SEO
+          if (secondary && third) {
+            filename = cleanForFilename(`${mainLabel}-${secondary}-${third}`);
+            alt = `${capitalize(mainLabel)} avec ${secondary} et ${third}`;
+            title = `Photo de ${mainLabel} - ${secondary} et ${third}`;
+          } else if (secondary) {
+            filename = cleanForFilename(`${mainLabel}-${secondary}`);
+            alt = `${capitalize(mainLabel)} avec ${secondary}`;
+            title = `Photo de ${mainLabel} - ${secondary}`;
+          } else {
+            filename = cleanForFilename(mainLabel);
+            alt = `${capitalize(mainLabel)} - image optimisee pour le web`;
+            title = `Photo de ${mainLabel}`;
+          }
         }
       }
 
     } else {
-      // === FALLBACK: MobileNet + GPS ===
+      // === FALLBACK: MobileNet (description locale) ===
       const hasOldScene = hasScene;
       let sceneLabels = [];
 
@@ -1031,25 +1076,59 @@
         if (geoData.country) tags.push({ translated: geoData.country, confidence: 99, type: 'geo' });
       }
 
-      const mainScene = sceneLabels.length > 0 ? sceneLabels[0].translated : '';
-
       if (hasGeo && hasOldScene) {
-        filename = cleanForFilename(`${mainScene}-${geoData.city}-${geoData.country}`);
-        alt = capitalize(`${mainScene} a ${geoData.city}, ${geoData.country}`);
-        title = `Photo de ${mainScene} - ${geoData.city}, ${geoData.region || geoData.country}`;
-      } else if (hasGeo) {
-        filename = cleanForFilename(`photo-${geoData.city}-${geoData.country}`);
-        alt = capitalize(`Vue de ${geoData.city}, ${geoData.region || geoData.country}`);
-        title = `Photo de ${geoData.city} - ${geoData.region || geoData.country}`;
-      } else if (hasOldScene) {
+        // GPS + MobileNet: phrase descriptive avec lieu
         const main = sceneLabels[0].translated;
-        filename = cleanForFilename(main);
-        alt = capitalize(main);
-        title = `Photo de ${main}`;
+        const secondary = sceneLabels.length >= 2 ? sceneLabels[1].translated : '';
+        const city = geoData.city;
+        const country = geoData.country;
+        const region = geoData.region || country;
+
+        if (secondary) {
+          filename = cleanForFilename(`${main}-${secondary}-${city}-${country}`);
+          alt = capitalize(`${main} et ${secondary} a ${city}, ${country}`);
+          title = `${capitalize(main)} avec ${secondary} - ${city}, ${region}`;
+        } else {
+          filename = cleanForFilename(`${main}-${city}-${country}`);
+          alt = capitalize(`${main} a ${city}, ${country}`);
+          title = `${capitalize(main)} - ${city}, ${region}`;
+        }
+
+      } else if (hasGeo) {
+        // GPS seul
+        const city = geoData.city;
+        const country = geoData.country;
+        const region = geoData.region || country;
+        filename = cleanForFilename(`vue-${city}-${country}`);
+        alt = capitalize(`Vue panoramique de ${city}, ${region}`);
+        title = `Decouvrir ${city} - ${region}, ${country}`;
+
+      } else if (hasOldScene) {
+        // MobileNet seul: construire une phrase SEO naturelle
+        const main = sceneLabels[0].translated;
+        const mainCap = capitalize(main);
+        const secondary = sceneLabels.length >= 2 ? sceneLabels[1].translated : '';
+        const third = sceneLabels.length >= 3 ? sceneLabels[2].translated : '';
+
+        // Build descriptive SEO phrase from detected elements
+        if (secondary && third) {
+          filename = cleanForFilename(`${main}-${secondary}-${third}`);
+          alt = `${mainCap} avec ${secondary} et ${third}`;
+          title = `Photo de ${main} - ${secondary} et ${third}`;
+        } else if (secondary) {
+          filename = cleanForFilename(`${main}-${secondary}`);
+          alt = `${mainCap} avec ${secondary}`;
+          title = `Photo de ${main} - ${secondary}`;
+        } else {
+          filename = cleanForFilename(main);
+          alt = `${mainCap} - image optimisee pour le web`;
+          title = `Photo de ${main}`;
+        }
+
       } else {
-        filename = 'image';
-        alt = 'Image';
-        title = 'Image';
+        filename = 'image-optimisee';
+        alt = 'Image optimisee pour le web';
+        title = 'Image optimisee';
       }
     }
 
@@ -1286,19 +1365,26 @@
           document.getElementById(`${id}-autolabel`).textContent = `AUTO < 1 Mo (redim. ${optResult.resized.width}x${optResult.resized.height})`;
         }
 
-        // --- Run EXIF + AI + Google Vision in parallel ---
-        aiStatus.innerHTML = '<span class="ai-spinner"></span> Analyse IA + Google Vision + EXIF...';
-        const [exifData, predictions, visionData] = await Promise.all([
+        // --- Step 1: Run EXIF + MobileNet (local AI) in parallel ---
+        aiStatus.innerHTML = '<span class="ai-spinner"></span> Analyse IA + EXIF en cours...';
+        const [exifData, predictions] = await Promise.all([
           extractExifData(file),
-          analyzeImage(document.getElementById(`${id}-imgel`)),
-          analyzeWithGoogleVision(file)
+          analyzeImage(document.getElementById(`${id}-imgel`))
         ]);
 
-        // --- Geocoding if GPS available ---
+        // --- Step 2: If GPS found, run geocoding + Google Vision API ---
         let geoData = null;
-        if (exifData && exifData.lat && exifData.lon) {
-          aiStatus.innerHTML = '<span class="ai-spinner"></span> Localisation GPS en cours...';
-          geoData = await reverseGeocode(exifData.lat, exifData.lon);
+        let visionData = null;
+        const hasGps = exifData && exifData.lat && exifData.lon;
+
+        if (hasGps) {
+          aiStatus.innerHTML = '<span class="ai-spinner"></span> GPS detecte - Google Vision + localisation...';
+          const [geo, vision] = await Promise.all([
+            reverseGeocode(exifData.lat, exifData.lon),
+            analyzeWithGoogleVision(file)
+          ]);
+          geoData = geo;
+          visionData = vision;
         }
 
         // --- Display EXIF info ---
@@ -1359,7 +1445,7 @@
           }
         });
 
-        suggestionsEl.addEventListener('click', (ev) => {
+        suggestionsEl.addEventListener('click', async (ev) => {
           const item = ev.target.closest('.location-suggestion');
           if (!item) return;
           const idx = parseInt(item.dataset.index);
@@ -1369,7 +1455,14 @@
           locationInput.style.borderColor = '#34d399';
           suggestionsEl.classList.remove('active');
 
-          // Regenerate SEO with city
+          // Call Google Vision API when city is manually selected
+          if (!visionData) {
+            aiStatus.innerHTML = '<span class="ai-spinner"></span> Ville selectionnee - analyse Google Vision...';
+            aiStatus.classList.remove('done');
+            visionData = await analyzeWithGoogleVision(file);
+          }
+
+          // Regenerate SEO with city + vision data
           const newSeo = generateSmartSeo(predictions, exifData, geoData, city, visionData);
           filenameInput.value = newSeo.filename;
           altInput.value = newSeo.alt;
@@ -1389,6 +1482,10 @@
             return `<span class="${cls}">${icon}${t.translated}${conf}</span>`;
           }).join('');
 
+          const sourceLabel = visionData ? 'Google Vision' : 'MobileNet';
+          aiStatus.innerHTML = `&#10003; Analyse terminee (${sourceLabel})`;
+          aiStatus.classList.add('done');
+
           // Show GPS badges
           document.getElementById(`${id}-geolabel`).style.display = 'inline';
           document.getElementById(`${id}-geolabel2`).style.display = 'inline';
@@ -1406,8 +1503,9 @@
 
         // Display tags
         if (seo.tags && seo.tags.length > 0) {
-          const sourceLabel = visionData ? 'Google Vision' : 'MobileNet';
-          aiStatus.innerHTML = `&#10003; Analyse terminee (${sourceLabel})`;
+          const sourceLabel = visionData ? 'Google Vision + MobileNet' : 'MobileNet';
+          const hint = !visionData ? ' - selectionnez une ville pour activer Google Vision' : '';
+          aiStatus.innerHTML = `&#10003; Analyse terminee (${sourceLabel})${hint}`;
           aiStatus.classList.add('done');
           tagsContainer.innerHTML = seo.tags.map(t => {
             let cls = 'detected-tag';
@@ -1421,12 +1519,15 @@
             return `<span class="${cls}">${icon}${t.translated}${conf}</span>`;
           }).join('');
         } else {
-          aiStatus.innerHTML = 'Analyse non disponible';
+          aiStatus.innerHTML = 'Analyse non disponible - utilisez le selecteur de ville';
           aiStatus.classList.add('done');
+          // Don't use hash filenames - use generic clean name
           const base = file.name.replace(/\.[^.]+$/, '').replace(/[_.\s]+/g, '-').toLowerCase();
-          filenameInput.value = base;
-          altInput.value = base.replace(/-/g, ' ');
-          titleInput.value = base.replace(/-/g, ' ');
+          const isHash = /^[a-f0-9]{20,}$/.test(base);
+          const cleanBase = isHash ? 'image' : base;
+          filenameInput.value = cleanBase;
+          altInput.value = isHash ? 'Image' : cleanBase.replace(/-/g, ' ');
+          titleInput.value = isHash ? 'Image' : cleanBase.replace(/-/g, ' ');
         }
 
         updateHtmlPreview();
