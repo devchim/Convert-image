@@ -1016,29 +1016,49 @@
         }
 
       } else {
-        // NO LANDMARK but have labels
+        // NO LANDMARK but have labels - build descriptive SEO phrases
         const bestGuess = visionData.bestGuessLabels.length > 0 ? visionData.bestGuessLabels[0] : '';
-        const topLabels = visionData.labels.slice(0, 3).map(l => l.name.toLowerCase());
+        const topLabels = visionData.labels.slice(0, 4).map(l => l.name.toLowerCase());
         const mainLabel = bestGuess || topLabels[0] || '';
+        const secondary = topLabels[1] || '';
+        const third = topLabels[2] || '';
 
         if (hasGeo) {
           const city = geoData.city;
           const country = geoData.country;
-          filename = cleanForFilename(`${mainLabel}-${city}-${country}`);
-          alt = capitalize(`${mainLabel} a ${city}, ${country}`);
-          title = `Photo de ${mainLabel} - ${city}, ${geoData.region || country}`;
+          const region = geoData.region || country;
+
+          if (secondary) {
+            filename = cleanForFilename(`${mainLabel}-${secondary}-${city}-${country}`);
+            alt = capitalize(`${mainLabel} et ${secondary} a ${city}, ${country}`);
+            title = `${capitalize(mainLabel)} avec ${secondary} - ${city}, ${region}`;
+          } else {
+            filename = cleanForFilename(`${mainLabel}-${city}-${country}`);
+            alt = capitalize(`${mainLabel} a ${city}, ${country}`);
+            title = `${capitalize(mainLabel)} - ${city}, ${region}`;
+          }
           tags.push({ translated: city, confidence: 99, type: 'geo' });
           tags.push({ translated: country, confidence: 99, type: 'geo' });
         } else {
-          const secondary = topLabels[1] || '';
-          filename = cleanForFilename(`${mainLabel}${secondary ? '-' + secondary : ''}`);
-          alt = capitalize(mainLabel + (secondary ? ` - ${secondary}` : ''));
-          title = `Photo de ${mainLabel}`;
+          // Vision labels only, no location - descriptive SEO
+          if (secondary && third) {
+            filename = cleanForFilename(`${mainLabel}-${secondary}-${third}`);
+            alt = `${capitalize(mainLabel)} avec ${secondary} et ${third}`;
+            title = `Photo de ${mainLabel} - ${secondary} et ${third}`;
+          } else if (secondary) {
+            filename = cleanForFilename(`${mainLabel}-${secondary}`);
+            alt = `${capitalize(mainLabel)} avec ${secondary}`;
+            title = `Photo de ${mainLabel} - ${secondary}`;
+          } else {
+            filename = cleanForFilename(mainLabel);
+            alt = `${capitalize(mainLabel)} - image optimisee pour le web`;
+            title = `Photo de ${mainLabel}`;
+          }
         }
       }
 
     } else {
-      // === FALLBACK: MobileNet + GPS ===
+      // === FALLBACK: MobileNet (description locale) ===
       const hasOldScene = hasScene;
       let sceneLabels = [];
 
@@ -1056,25 +1076,59 @@
         if (geoData.country) tags.push({ translated: geoData.country, confidence: 99, type: 'geo' });
       }
 
-      const mainScene = sceneLabels.length > 0 ? sceneLabels[0].translated : '';
-
       if (hasGeo && hasOldScene) {
-        filename = cleanForFilename(`${mainScene}-${geoData.city}-${geoData.country}`);
-        alt = capitalize(`${mainScene} a ${geoData.city}, ${geoData.country}`);
-        title = `Photo de ${mainScene} - ${geoData.city}, ${geoData.region || geoData.country}`;
-      } else if (hasGeo) {
-        filename = cleanForFilename(`photo-${geoData.city}-${geoData.country}`);
-        alt = capitalize(`Vue de ${geoData.city}, ${geoData.region || geoData.country}`);
-        title = `Photo de ${geoData.city} - ${geoData.region || geoData.country}`;
-      } else if (hasOldScene) {
+        // GPS + MobileNet: phrase descriptive avec lieu
         const main = sceneLabels[0].translated;
-        filename = cleanForFilename(main);
-        alt = capitalize(main);
-        title = `Photo de ${main}`;
+        const secondary = sceneLabels.length >= 2 ? sceneLabels[1].translated : '';
+        const city = geoData.city;
+        const country = geoData.country;
+        const region = geoData.region || country;
+
+        if (secondary) {
+          filename = cleanForFilename(`${main}-${secondary}-${city}-${country}`);
+          alt = capitalize(`${main} et ${secondary} a ${city}, ${country}`);
+          title = `${capitalize(main)} avec ${secondary} - ${city}, ${region}`;
+        } else {
+          filename = cleanForFilename(`${main}-${city}-${country}`);
+          alt = capitalize(`${main} a ${city}, ${country}`);
+          title = `${capitalize(main)} - ${city}, ${region}`;
+        }
+
+      } else if (hasGeo) {
+        // GPS seul
+        const city = geoData.city;
+        const country = geoData.country;
+        const region = geoData.region || country;
+        filename = cleanForFilename(`vue-${city}-${country}`);
+        alt = capitalize(`Vue panoramique de ${city}, ${region}`);
+        title = `Decouvrir ${city} - ${region}, ${country}`;
+
+      } else if (hasOldScene) {
+        // MobileNet seul: construire une phrase SEO naturelle
+        const main = sceneLabels[0].translated;
+        const mainCap = capitalize(main);
+        const secondary = sceneLabels.length >= 2 ? sceneLabels[1].translated : '';
+        const third = sceneLabels.length >= 3 ? sceneLabels[2].translated : '';
+
+        // Build descriptive SEO phrase from detected elements
+        if (secondary && third) {
+          filename = cleanForFilename(`${main}-${secondary}-${third}`);
+          alt = `${mainCap} avec ${secondary} et ${third}`;
+          title = `Photo de ${main} - ${secondary} et ${third}`;
+        } else if (secondary) {
+          filename = cleanForFilename(`${main}-${secondary}`);
+          alt = `${mainCap} avec ${secondary}`;
+          title = `Photo de ${main} - ${secondary}`;
+        } else {
+          filename = cleanForFilename(main);
+          alt = `${mainCap} - image optimisee pour le web`;
+          title = `Photo de ${main}`;
+        }
+
       } else {
-        filename = 'image';
-        alt = 'Image';
-        title = 'Image';
+        filename = 'image-optimisee';
+        alt = 'Image optimisee pour le web';
+        title = 'Image optimisee';
       }
     }
 
