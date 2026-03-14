@@ -3,9 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Image to WebP - Optimiseur SEO</title>
+  <title>Image to WebP - Optimiseur SEO avec IA</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+  <script src="https://unpkg.com/exifr@7.1.3/dist/full.umd.cjs"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -94,39 +95,14 @@
       box-shadow: 0 0 30px rgba(99, 102, 241, 0.15);
     }
 
-    .drop-zone-icon {
-      font-size: 3rem;
-      margin-bottom: 16px;
-      display: block;
-    }
-
-    .drop-zone-text {
-      font-size: 1.1rem;
-      color: #aaa;
-    }
-
-    .drop-zone-text span {
-      color: #6366f1;
-      text-decoration: underline;
-      cursor: pointer;
-    }
-
-    .drop-zone input[type="file"] {
-      display: none;
-    }
-
-    .formats {
-      margin-top: 12px;
-      font-size: 0.8rem;
-      color: #555;
-    }
+    .drop-zone-icon { font-size: 3rem; margin-bottom: 16px; display: block; }
+    .drop-zone-text { font-size: 1.1rem; color: #aaa; }
+    .drop-zone-text span { color: #6366f1; text-decoration: underline; cursor: pointer; }
+    .drop-zone input[type="file"] { display: none; }
+    .formats { margin-top: 12px; font-size: 0.8rem; color: #555; }
 
     /* Results */
-    .results {
-      display: none;
-      margin-top: 32px;
-    }
-
+    .results { display: none; margin-top: 32px; }
     .results.active { display: block; }
 
     .image-card {
@@ -162,10 +138,7 @@
       object-fit: contain;
     }
 
-    .image-info {
-      flex: 1;
-      min-width: 0;
-    }
+    .image-info { flex: 1; min-width: 0; }
 
     .original-name {
       font-size: 0.85rem;
@@ -213,15 +186,33 @@
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
     }
-    .ai-status.done {
-      color: #34d399;
-      background: #1a2a1a;
+    .ai-status.done { color: #34d399; background: #1a2a1a; }
+
+    /* EXIF Metadata */
+    .exif-info {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 16px;
+      padding: 12px;
+      border-radius: 8px;
+      background: #0f0f1a;
+      border: 1px solid #2a2a45;
     }
+    .exif-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.8rem;
+      color: #aaa;
+    }
+    .exif-item .exif-icon { font-size: 1rem; }
+    .exif-item .exif-label { color: #666; }
+    .exif-item .exif-value { color: #e0e0e0; font-weight: 500; }
+    .exif-item.location .exif-value { color: #f59e0b; }
 
     /* Form Fields */
-    .field {
-      margin-bottom: 16px;
-    }
+    .field { margin-bottom: 16px; }
 
     .field label {
       display: flex;
@@ -251,6 +242,15 @@
       font-weight: 600;
     }
 
+    .field label .tag-geo {
+      font-size: 0.7rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: #f59e0b;
+      color: #0f0f1a;
+      font-weight: 600;
+    }
+
     .field input,
     .field textarea {
       width: 100%;
@@ -271,19 +271,10 @@
     }
 
     .field textarea { resize: vertical; min-height: 60px; }
-
-    .field .hint {
-      font-size: 0.75rem;
-      color: #555;
-      margin-top: 4px;
-    }
+    .field .hint { font-size: 0.75rem; color: #555; margin-top: 4px; }
 
     /* Quality Slider */
-    .quality-row {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
+    .quality-row { display: flex; align-items: center; gap: 12px; }
 
     .quality-row input[type="range"] {
       flex: 1;
@@ -303,12 +294,7 @@
     }
 
     /* Buttons */
-    .actions {
-      display: flex;
-      gap: 12px;
-      margin-top: 20px;
-      flex-wrap: wrap;
-    }
+    .actions { display: flex; gap: 12px; margin-top: 20px; flex-wrap: wrap; }
 
     .btn {
       padding: 10px 20px;
@@ -323,26 +309,11 @@
       gap: 8px;
     }
 
-    .btn-primary {
-      background: #6366f1;
-      color: white;
-    }
+    .btn-primary { background: #6366f1; color: white; }
     .btn-primary:hover { background: #4f46e5; }
-
-    .btn-secondary {
-      background: #1e1e38;
-      color: #aaa;
-      border: 1px solid #2a2a45;
-    }
+    .btn-secondary { background: #1e1e38; color: #aaa; border: 1px solid #2a2a45; }
     .btn-secondary:hover { background: #2a2a45; color: #e0e0e0; }
-
-    .btn-copy {
-      background: #1e1e38;
-      color: #34d399;
-      border: 1px solid #2a4a3a;
-      font-size: 0.85rem;
-      padding: 6px 14px;
-    }
+    .btn-copy { background: #1e1e38; color: #34d399; border: 1px solid #2a4a3a; font-size: 0.85rem; padding: 6px 14px; }
     .btn-copy:hover { background: #1a3a2a; }
 
     /* SEO Preview */
@@ -374,12 +345,7 @@
     }
 
     /* Detected tags */
-    .detected-tags {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin-top: 8px;
-    }
+    .detected-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
     .detected-tag {
       font-size: 0.75rem;
       padding: 3px 8px;
@@ -388,24 +354,21 @@
       color: #a78bfa;
       border: 1px solid #3b3b5c;
     }
-    .detected-tag .confidence {
-      color: #666;
-      margin-left: 4px;
+    .detected-tag.geo-tag {
+      color: #f59e0b;
+      border-color: #5a4a1a;
+      background: #1e1a10;
     }
+    .detected-tag .confidence { color: #666; margin-left: 4px; }
 
     /* Responsive */
     @media (max-width: 600px) {
-      .image-card-header {
-        flex-direction: column;
-        align-items: center;
-      }
-      .preview-wrapper {
-        width: 120px;
-        height: 120px;
-      }
+      .image-card-header { flex-direction: column; align-items: center; }
+      .preview-wrapper { width: 120px; height: 120px; }
       h1 { font-size: 1.5rem; }
       .actions { flex-direction: column; }
       .btn { justify-content: center; }
+      .exif-info { flex-direction: column; }
     }
 
     /* Toast */
@@ -426,25 +389,15 @@
     }
     .toast.show { transform: translateY(0); opacity: 1; }
 
-    /* Multi images counter */
-    .batch-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 16px;
-    }
-
-    .batch-header h3 {
-      color: #aaa;
-      font-size: 1rem;
-    }
+    .batch-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .batch-header h3 { color: #aaa; font-size: 1rem; }
   </style>
 </head>
 <body>
 
 <div class="container">
   <h1>Image to WebP Converter</h1>
-  <p class="subtitle">Convertissez, renommez et optimisez vos images pour le SEO avec l'IA</p>
+  <p class="subtitle">Convertissez, renommez et optimisez vos images pour le SEO avec IA + GPS</p>
 
   <div class="model-loading" id="modelLoading">
     <span class="spinner"></span>
@@ -480,13 +433,11 @@
   const batchTitle = document.getElementById('batchTitle');
   const toast = document.getElementById('toast');
 
-  // ---- AI Model ----
+  // ===== AI Model =====
   let model = null;
   let modelLoading = false;
 
-  // Translation map for common MobileNet labels
   const labelTranslations = {
-    // Animals
     'tabby': 'chat tigre', 'tabby cat': 'chat tigre', 'tiger cat': 'chat tigre',
     'Persian cat': 'chat persan', 'Siamese cat': 'chat siamois', 'Egyptian cat': 'chat egyptien',
     'cat': 'chat', 'kitten': 'chaton',
@@ -496,149 +447,86 @@
     'bird': 'oiseau', 'fish': 'poisson', 'shark': 'requin', 'whale': 'baleine',
     'horse': 'cheval', 'elephant': 'elephant', 'lion': 'lion', 'tiger': 'tigre',
     'bear': 'ours', 'rabbit': 'lapin', 'deer': 'cerf', 'butterfly': 'papillon',
-    'bee': 'abeille', 'ant': 'fourmi', 'spider': 'araignee', 'snake': 'serpent',
+    'bee': 'abeille', 'spider': 'araignee', 'snake': 'serpent',
     'turtle': 'tortue', 'frog': 'grenouille', 'monkey': 'singe', 'penguin': 'pingouin',
     'parrot': 'perroquet', 'eagle': 'aigle', 'owl': 'hibou', 'duck': 'canard',
     'hen': 'poule', 'rooster': 'coq', 'peacock': 'paon', 'flamingo': 'flamant rose',
-    'jellyfish': 'meduse', 'starfish': 'etoile de mer', 'crab': 'crabe',
-    'lobster': 'homard', 'snail': 'escargot', 'cow': 'vache', 'pig': 'cochon',
-    'sheep': 'mouton', 'goat': 'chevre', 'zebra': 'zebre', 'giraffe': 'girafe',
-    'panda': 'panda', 'koala': 'koala', 'wolf': 'loup', 'fox': 'renard',
-    'hamster': 'hamster', 'squirrel': 'ecureuil', 'hedgehog': 'herisson',
-    'dolphin': 'dauphin', 'octopus': 'pieuvre', 'goldfish': 'poisson rouge',
-    'leopard': 'leopard', 'cheetah': 'guepard', 'gorilla': 'gorille',
-    'hippopotamus': 'hippopotame', 'rhinoceros': 'rhinoceros', 'camel': 'chameau',
-    'crocodile': 'crocodile', 'alligator': 'alligator', 'iguana': 'iguane',
-    'chameleon': 'cameleon', 'salamander': 'salamandre', 'scorpion': 'scorpion',
-    'cockroach': 'cafard', 'dragonfly': 'libellule', 'ladybug': 'coccinelle',
-    'caterpillar': 'chenille', 'moth': 'papillon de nuit', 'wasp': 'guepe',
-    'mosquito': 'moustique', 'grasshopper': 'sauterelle', 'cricket': 'grillon',
-
-    // Food
+    'jellyfish': 'meduse', 'crab': 'crabe', 'lobster': 'homard', 'snail': 'escargot',
+    'cow': 'vache', 'pig': 'cochon', 'sheep': 'mouton', 'goat': 'chevre',
+    'zebra': 'zebre', 'giraffe': 'girafe', 'panda': 'panda', 'wolf': 'loup', 'fox': 'renard',
+    'dolphin': 'dauphin', 'gorilla': 'gorille', 'camel': 'chameau',
+    'crocodile': 'crocodile', 'scorpion': 'scorpion',
     'pizza': 'pizza', 'hamburger': 'hamburger', 'cheeseburger': 'cheeseburger',
-    'hot dog': 'hot dog', 'French loaf': 'baguette de pain', 'bagel': 'bagel',
-    'pretzel': 'bretzel', 'espresso': 'espresso', 'cup': 'tasse',
-    'ice cream': 'glace', 'chocolate sauce': 'sauce chocolat',
+    'hot dog': 'hot dog', 'French loaf': 'baguette de pain',
+    'espresso': 'espresso', 'cup': 'tasse', 'ice cream': 'glace',
     'banana': 'banane', 'apple': 'pomme', 'orange': 'orange', 'lemon': 'citron',
-    'pineapple': 'ananas', 'strawberry': 'fraise', 'fig': 'figue',
-    'pomegranate': 'grenade', 'mushroom': 'champignon', 'broccoli': 'brocoli',
-    'cauliflower': 'chou-fleur', 'cucumber': 'concombre', 'bell pepper': 'poivron',
-    'corn': 'mais', 'plate': 'assiette', 'bowl': 'bol', 'pot': 'casserole',
-    'wine bottle': 'bouteille de vin', 'beer glass': 'verre de biere',
-    'coffee mug': 'tasse de cafe', 'teapot': 'theiere',
-    'meat loaf': 'pain de viande', 'guacamole': 'guacamole', 'burrito': 'burrito',
-    'taco': 'taco', 'sushi': 'sushi', 'soup bowl': 'bol de soupe',
-
-    // Vehicles
+    'pineapple': 'ananas', 'strawberry': 'fraise', 'mushroom': 'champignon',
+    'wine bottle': 'bouteille de vin', 'coffee mug': 'tasse de cafe',
     'sports car': 'voiture de sport', 'race car': 'voiture de course',
-    'limousine': 'limousine', 'minivan': 'monospace', 'ambulance': 'ambulance',
+    'limousine': 'limousine', 'ambulance': 'ambulance',
     'fire engine': 'camion de pompiers', 'school bus': 'bus scolaire',
-    'trolleybus': 'trolleybus', 'cab': 'taxi', 'convertible': 'cabriolet',
-    'jeep': 'jeep', 'pickup': 'pick-up', 'trailer truck': 'camion remorque',
-    'moving van': 'camion de demenagement', 'police van': 'fourgon de police',
+    'cab': 'taxi', 'convertible': 'cabriolet', 'jeep': 'jeep',
     'bicycle': 'velo', 'mountain bike': 'velo de montagne', 'motor scooter': 'scooter',
-    'motorcycle': 'moto', 'speedboat': 'bateau rapide', 'sailboat': 'voilier',
-    'canoe': 'canoe', 'yacht': 'yacht', 'gondola': 'gondole',
-    'aircraft carrier': 'porte-avions', 'airliner': 'avion de ligne',
-    'warplane': 'avion de guerre', 'hot air balloon': 'montgolfiere',
-    'space shuttle': 'navette spatiale', 'steam locomotive': 'locomotive a vapeur',
-    'bullet train': 'train a grande vitesse', 'freight car': 'wagon de marchandises',
+    'motorcycle': 'moto', 'sailboat': 'voilier', 'yacht': 'yacht',
+    'airliner': 'avion de ligne', 'hot air balloon': 'montgolfiere',
+    'bullet train': 'train a grande vitesse',
     'car': 'voiture', 'truck': 'camion', 'bus': 'bus', 'train': 'train',
     'boat': 'bateau', 'airplane': 'avion', 'helicopter': 'helicoptere',
-    'rocket': 'fusee', 'submarine': 'sous-marin', 'tractor': 'tracteur',
-
-    // Tech
     'laptop': 'ordinateur portable', 'desktop computer': 'ordinateur de bureau',
-    'notebook': 'ordinateur portable', 'keyboard': 'clavier', 'mouse': 'souris',
-    'monitor': 'ecran', 'screen': 'ecran', 'television': 'television',
-    'cellular telephone': 'telephone portable', 'cell phone': 'telephone portable',
-    'smartphone': 'smartphone', 'tablet': 'tablette', 'iPod': 'iPod',
-    'remote control': 'telecommande', 'joystick': 'joystick', 'printer': 'imprimante',
-    'scanner': 'scanner', 'speaker': 'haut-parleur', 'headphone': 'casque audio',
-    'microphone': 'microphone', 'camera': 'appareil photo', 'web site': 'site web',
-    'projector': 'projecteur', 'hard disc': 'disque dur', 'USB': 'cle USB',
-    'modem': 'modem', 'router': 'routeur',
-
-    // Nature / Places
+    'keyboard': 'clavier', 'mouse': 'souris', 'monitor': 'ecran', 'screen': 'ecran',
+    'television': 'television', 'cellular telephone': 'telephone portable',
+    'cell phone': 'telephone portable', 'smartphone': 'smartphone',
+    'camera': 'appareil photo', 'printer': 'imprimante',
     'beach': 'plage', 'mountain': 'montagne', 'volcano': 'volcan',
     'valley': 'vallee', 'cliff': 'falaise', 'coral reef': 'recif corallien',
     'lakeside': 'bord de lac', 'seashore': 'bord de mer', 'promontory': 'promontoire',
     'sandbar': 'banc de sable', 'ocean': 'ocean', 'river': 'riviere',
-    'waterfall': 'cascade', 'forest': 'foret', 'jungle': 'jungle',
-    'desert': 'desert', 'garden': 'jardin', 'park': 'parc',
-    'field': 'champ', 'meadow': 'prairie', 'sunset': 'coucher de soleil',
+    'waterfall': 'cascade', 'forest': 'foret', 'desert': 'desert',
+    'garden': 'jardin', 'park': 'parc', 'sunset': 'coucher de soleil',
     'sunrise': 'lever de soleil', 'sky': 'ciel', 'cloud': 'nuage',
-    'rainbow': 'arc-en-ciel', 'snow': 'neige', 'rain': 'pluie',
-    'flower': 'fleur', 'tree': 'arbre', 'leaf': 'feuille',
-    'daisy': 'marguerite', 'rose': 'rose', 'sunflower': 'tournesol',
-    'tulip': 'tulipe', 'lotus': 'lotus',
-
-    // Buildings
+    'flower': 'fleur', 'tree': 'arbre', 'daisy': 'marguerite', 'rose': 'rose',
+    'sunflower': 'tournesol',
     'church': 'eglise', 'castle': 'chateau', 'palace': 'palais',
     'mosque': 'mosquee', 'monastery': 'monastere', 'library': 'bibliotheque',
-    'cinema': 'cinema', 'restaurant': 'restaurant', 'barbershop': 'salon de coiffure',
-    'bookshop': 'librairie', 'grocery store': 'epicerie', 'bakery': 'boulangerie',
-    'bridge': 'pont', 'dam': 'barrage', 'fountain': 'fontaine',
-    'lighthouse': 'phare', 'barn': 'grange', 'greenhouse': 'serre',
-    'dome': 'dome', 'tower': 'tour', 'skyscraper': 'gratte-ciel',
-    'house': 'maison', 'building': 'batiment', 'office': 'bureau',
-    'school': 'ecole', 'hospital': 'hopital', 'hotel': 'hotel',
+    'restaurant': 'restaurant', 'bridge': 'pont', 'fountain': 'fontaine',
+    'lighthouse': 'phare', 'dome': 'dome', 'tower': 'tour',
+    'skyscraper': 'gratte-ciel', 'house': 'maison', 'building': 'batiment',
     'stadium': 'stade', 'museum': 'musee', 'airport': 'aeroport',
-
-    // Objects
     'umbrella': 'parapluie', 'sunglasses': 'lunettes de soleil',
-    'backpack': 'sac a dos', 'handbag': 'sac a main', 'suitcase': 'valise',
-    'wallet': 'portefeuille', 'watch': 'montre', 'clock': 'horloge',
-    'lamp': 'lampe', 'candle': 'bougie', 'vase': 'vase', 'mirror': 'miroir',
-    'pillow': 'oreiller', 'blanket': 'couverture', 'towel': 'serviette',
-    'soap': 'savon', 'toothbrush': 'brosse a dents', 'comb': 'peigne',
-    'scissors': 'ciseaux', 'hammer': 'marteau', 'screwdriver': 'tournevis',
-    'wrench': 'cle anglaise', 'nail': 'clou', 'shovel': 'pelle',
-    'broom': 'balai', 'bucket': 'seau', 'chain': 'chaine', 'lock': 'cadenas',
-    'key': 'cle', 'bell': 'cloche', 'trophy': 'trophee', 'medal': 'medaille',
-    'book': 'livre', 'newspaper': 'journal', 'envelope': 'enveloppe',
-    'pen': 'stylo', 'pencil': 'crayon', 'paintbrush': 'pinceau',
-    'ruler': 'regle', 'globe': 'globe', 'map': 'carte',
-    'guitar': 'guitare', 'piano': 'piano', 'violin': 'violon', 'drum': 'tambour',
-    'flute': 'flute', 'trumpet': 'trompette', 'harp': 'harpe',
-    'ball': 'ballon', 'basketball': 'ballon de basket', 'football': 'ballon de football',
-    'tennis ball': 'balle de tennis', 'baseball': 'balle de baseball',
-    'golf ball': 'balle de golf', 'soccer ball': 'ballon de foot',
-    'racket': 'raquette', 'tennis racket': 'raquette de tennis',
-    'ski': 'ski', 'snowboard': 'snowboard', 'surfboard': 'planche de surf',
-    'skateboard': 'skateboard', 'dumbbell': 'haltere',
-    'chair': 'chaise', 'table': 'table', 'desk': 'bureau',
-    'sofa': 'canape', 'bed': 'lit', 'wardrobe': 'armoire', 'shelf': 'etagere',
-    'bathtub': 'baignoire', 'shower': 'douche', 'toilet': 'toilettes',
-    'sink': 'evier', 'stove': 'cuisiniere', 'oven': 'four',
-    'refrigerator': 'refrigerateur', 'dishwasher': 'lave-vaisselle',
-    'washing machine': 'machine a laver', 'iron': 'fer a repasser',
-    'fan': 'ventilateur', 'air conditioner': 'climatiseur',
-
-    // People / Clothing
+    'backpack': 'sac a dos', 'suitcase': 'valise', 'watch': 'montre',
+    'clock': 'horloge', 'lamp': 'lampe', 'book': 'livre',
+    'guitar': 'guitare', 'piano': 'piano',
+    'ball': 'ballon', 'basketball': 'ballon de basket',
+    'tennis ball': 'balle de tennis', 'soccer ball': 'ballon de foot',
+    'surfboard': 'planche de surf', 'skateboard': 'skateboard',
+    'chair': 'chaise', 'table': 'table', 'sofa': 'canape', 'bed': 'lit',
+    'refrigerator': 'refrigerateur', 'washing machine': 'machine a laver',
     'suit': 'costume', 'dress': 'robe', 'shirt': 'chemise', 'jeans': 'jean',
-    'jacket': 'veste', 'coat': 'manteau', 'sweater': 'pull',
-    'hat': 'chapeau', 'cap': 'casquette', 'scarf': 'echarpe',
-    'glove': 'gant', 'shoe': 'chaussure', 'boot': 'botte',
-    'sandal': 'sandale', 'sneaker': 'basket', 'tie': 'cravate',
-    'bow tie': 'noeud papillon', 'ring': 'bague', 'necklace': 'collier',
-    'bracelet': 'bracelet', 'earring': 'boucle d\'oreille',
-    'mask': 'masque', 'wig': 'perruque',
-    'jean': 'jean', 'bikini': 'bikini', 'swimming trunks': 'maillot de bain',
-    'jersey': 'maillot',
+    'hat': 'chapeau', 'shoe': 'chaussure', 'bikini': 'bikini',
+    // Scene descriptors - better translations
+    'breakwater': 'brise-lames', 'pier': 'jetee', 'dock': 'quai',
+    'boathouse': 'hangar a bateaux', 'marina': 'marina', 'harbor': 'port',
+    'alp': 'alpage', 'ridge': 'crete', 'hillside': 'flanc de colline',
+    'shore': 'rivage', 'coast': 'cote', 'bay': 'baie',
+    'airship': 'dirigeable', 'parachute': 'parachute',
   };
+
+  // Labels to IGNORE (too generic or misleading for real photos)
+  const ignoredLabels = new Set([
+    'airship', 'dirigible', 'tennis ball', 'ping-pong ball', 'golf ball',
+    'jigsaw puzzle', 'crossword puzzle', 'envelope', 'web site',
+    'screen', 'monitor', 'television', 'notebook',
+    'hard disc', 'modem', 'projector',
+  ]);
 
   function translateLabel(label) {
     const lower = label.toLowerCase().trim();
-    // Check exact match
     for (const [en, fr] of Object.entries(labelTranslations)) {
       if (lower === en.toLowerCase()) return fr;
     }
-    // Check if label contains a known term
     for (const [en, fr] of Object.entries(labelTranslations)) {
       if (lower.includes(en.toLowerCase())) return fr;
     }
-    // Return cleaned original
     return lower.replace(/,/g, '').trim();
   }
 
@@ -666,57 +554,232 @@
     if (!m) return null;
     try {
       const predictions = await m.classify(imgElement, 5);
-      return predictions.filter(p => p.probability > 0.05);
+      // Filter: confidence > 15% AND not in ignored list
+      return predictions.filter(p => {
+        if (p.probability < 0.15) return false;
+        const lower = p.className.toLowerCase();
+        for (const ignored of ignoredLabels) {
+          if (lower.includes(ignored.toLowerCase())) return false;
+        }
+        return true;
+      });
     } catch (err) {
       console.error('Erreur analyse:', err);
       return null;
     }
   }
 
-  function generateSeoFromPredictions(predictions) {
-    if (!predictions || predictions.length === 0) {
-      return { filename: 'image', alt: 'Image', title: 'Image', tags: [] };
+  // ===== EXIF & Geocoding =====
+
+  async function extractExifData(file) {
+    try {
+      const exif = await exifr.parse(file, {
+        gps: true,
+        xmp: true,
+        ifd0: true,
+        exif: true,
+        pick: ['Make', 'Model', 'DateTimeOriginal', 'CreateDate',
+               'latitude', 'longitude', 'GPSLatitude', 'GPSLongitude',
+               'ImageDescription', 'XPTitle', 'XPSubject', 'XPComment',
+               'ObjectName', 'Caption', 'Headline']
+      });
+      if (!exif) return null;
+
+      const result = {};
+
+      // GPS
+      if (exif.latitude && exif.longitude) {
+        result.lat = exif.latitude;
+        result.lon = exif.longitude;
+      }
+
+      // Date
+      if (exif.DateTimeOriginal || exif.CreateDate) {
+        const d = exif.DateTimeOriginal || exif.CreateDate;
+        if (d instanceof Date) {
+          result.date = d.toLocaleDateString('fr-FR', {
+            year: 'numeric', month: 'long', day: 'numeric'
+          });
+          result.year = d.getFullYear();
+        }
+      }
+
+      // Camera
+      if (exif.Make || exif.Model) {
+        const make = (exif.Make || '').trim();
+        const model = (exif.Model || '').trim();
+        // Avoid repeating brand in model name
+        if (model.toLowerCase().startsWith(make.toLowerCase())) {
+          result.camera = model;
+        } else {
+          result.camera = [make, model].filter(Boolean).join(' ');
+        }
+      }
+
+      // Embedded description
+      const desc = exif.ImageDescription || exif.XPTitle || exif.XPSubject ||
+                   exif.Caption || exif.Headline || exif.ObjectName;
+      if (desc && typeof desc === 'string' && desc.trim().length > 2) {
+        result.description = desc.trim();
+      }
+
+      return Object.keys(result).length > 0 ? result : null;
+    } catch (err) {
+      console.warn('EXIF extraction failed:', err);
+      return null;
+    }
+  }
+
+  // Geocoding queue to respect 1 req/sec rate limit
+  let geocodeQueue = Promise.resolve();
+
+  async function reverseGeocode(lat, lon) {
+    return new Promise((resolve) => {
+      geocodeQueue = geocodeQueue.then(async () => {
+        try {
+          const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=fr&zoom=14`;
+          const resp = await fetch(url, {
+            headers: { 'User-Agent': 'ImageToWebP-Converter/1.0' }
+          });
+          if (!resp.ok) { resolve(null); return; }
+          const data = await resp.json();
+
+          const addr = data.address || {};
+          const result = {
+            city: addr.city || addr.town || addr.village || addr.municipality || addr.hamlet || '',
+            district: addr.suburb || addr.neighbourhood || addr.quarter || '',
+            region: addr.state || addr.province || addr.region || '',
+            country: addr.country || '',
+            countryCode: addr.country_code || '',
+            displayName: '',
+            type: data.type || '',
+            category: data.category || '',
+          };
+
+          // Build display name
+          const parts = [result.city, result.region, result.country].filter(Boolean);
+          result.displayName = parts.join(', ');
+
+          resolve(result);
+        } catch (err) {
+          console.warn('Geocoding failed:', err);
+          resolve(null);
+        }
+        // Rate limit: wait 1.1 sec between requests
+        await new Promise(r => setTimeout(r, 1100));
+      });
+    });
+  }
+
+  // ===== Smart SEO Generation =====
+
+  function generateSmartSeo(predictions, exifData, geoData) {
+    const tags = [];
+    let filename = '';
+    let alt = '';
+    let title = '';
+
+    const hasGeo = geoData && geoData.city;
+    const hasScene = predictions && predictions.length > 0;
+    const hasExifDesc = exifData && exifData.description;
+
+    // Build scene description from MobileNet
+    let sceneLabels = [];
+    if (hasScene) {
+      sceneLabels = predictions.map(p => ({
+        label: p.className,
+        translated: translateLabel(p.className),
+        confidence: Math.round(p.probability * 100)
+      }));
+      sceneLabels.forEach(t => tags.push({ ...t, type: 'ai' }));
     }
 
-    const tags = predictions.map(p => ({
-      label: p.className,
-      translated: translateLabel(p.className),
-      confidence: Math.round(p.probability * 100)
-    }));
+    // Add geo tags
+    if (hasGeo) {
+      tags.unshift({ translated: geoData.city, confidence: 99, type: 'geo' });
+      if (geoData.country) {
+        tags.push({ translated: geoData.country, confidence: 99, type: 'geo' });
+      }
+    }
 
-    // Use top predictions for naming
-    const mainLabels = tags.slice(0, 3).map(t => t.translated);
+    const mainScene = sceneLabels.length > 0 ? sceneLabels[0].translated : '';
 
-    // SEO filename: lowercase, hyphens
-    const filename = mainLabels
-      .join('-')
-      .toLowerCase()
-      .replace(/[^a-z0-9\u00C0-\u024F-]/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '')
-      .substring(0, 60);
+    if (hasGeo && hasScene) {
+      // BEST CASE: GPS + AI vision
+      const city = geoData.city;
+      const country = geoData.country;
+      const scene = mainScene;
 
-    // Alt: descriptive sentence
-    const mainItem = tags[0].translated;
-    const mainItemCapitalized = mainItem.charAt(0).toUpperCase() + mainItem.slice(1);
-    let alt;
-    if (tags.length >= 2) {
-      const secondary = tags.slice(1, 3).map(t => t.translated).join(' et ');
-      alt = `${mainItemCapitalized} - ${secondary}`;
+      filename = cleanForFilename(`${scene}-${city}-${country}`);
+      alt = capitalize(`${scene} a ${city}, ${country}`);
+      title = `Photo de ${scene} - ${city}, ${geoData.region || country}`;
+
+    } else if (hasGeo) {
+      // GPS only, no meaningful AI
+      const city = geoData.city;
+      const country = geoData.country;
+      const region = geoData.region;
+
+      filename = cleanForFilename(`photo-${city}-${country}`);
+      alt = capitalize(`Vue de ${city}, ${region || country}`);
+      title = `Photo de ${city} - ${region || country}`;
+
+    } else if (hasExifDesc) {
+      // Use embedded EXIF description
+      const desc = exifData.description;
+      filename = cleanForFilename(desc);
+      alt = capitalize(desc);
+      title = desc;
+
+    } else if (hasScene) {
+      // AI vision only
+      const main = sceneLabels[0].translated;
+      const mainCap = capitalize(main);
+
+      if (sceneLabels.length >= 2) {
+        const secondary = sceneLabels[1].translated;
+        filename = cleanForFilename(`${main}-${secondary}`);
+        alt = `${mainCap} - ${secondary}`;
+        title = `Photo de ${main} - ${secondary}`;
+      } else {
+        filename = cleanForFilename(main);
+        alt = mainCap;
+        title = `Photo de ${main}`;
+      }
+
     } else {
-      alt = mainItemCapitalized;
+      filename = 'image';
+      alt = 'Image';
+      title = 'Image';
     }
 
-    // Title: slightly different, more descriptive
-    const title = `Photo de ${mainItem}${tags.length > 1 ? ' - ' + tags[1].translated : ''}`;
+    // Add date to title if available
+    if (exifData && exifData.year && !title.includes(String(exifData.year))) {
+      title += ` (${exifData.year})`;
+    }
 
     return { filename, alt, title, tags };
   }
 
-  // ---- Start loading model immediately ----
+  function capitalize(str) {
+    if (!str) return str;
+    return str.charAt(0).toUpperCase() + str.slice(1);
+  }
+
+  function cleanForFilename(str) {
+    return str
+      .toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // Remove accents
+      .replace(/[^a-z0-9-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .substring(0, 60);
+  }
+
+  // ===== Start loading model =====
   loadModel();
 
-  // Drop zone events
+  // ===== Drop zone events =====
   ['dragenter', 'dragover'].forEach(e => {
     dropZone.addEventListener(e, ev => { ev.preventDefault(); dropZone.classList.add('dragover'); });
   });
@@ -750,7 +813,6 @@
     return (bytes / 1048576).toFixed(1) + ' Mo';
   }
 
-  // Auto-optimize: find best quality that keeps file under 1MB
   async function findOptimalQuality(img, maxBytes = 1000000) {
     const canvas = document.createElement('canvas');
     canvas.width = img.naturalWidth;
@@ -758,13 +820,10 @@
     const ctx = canvas.getContext('2d');
     ctx.drawImage(img, 0, 0);
 
-    // Start at 80, check if under 1MB
     let quality = 80;
     let blob = await new Promise(r => canvas.toBlob(r, 'image/webp', quality / 100));
-
     if (blob && blob.size <= maxBytes) return { quality, blob };
 
-    // Binary search for optimal quality
     let lo = 10, hi = 75;
     let bestQuality = 10;
     let bestBlob = null;
@@ -781,7 +840,6 @@
       }
     }
 
-    // If even quality 10 is too big, try resizing
     if (!bestBlob) {
       let scale = 0.9;
       while (scale > 0.2) {
@@ -796,7 +854,6 @@
         }
         scale -= 0.1;
       }
-      // Fallback
       return { quality: 10, blob };
     }
 
@@ -814,6 +871,7 @@
     });
   }
 
+  // ===== Process Image =====
   function processImage(file) {
     const reader = new FileReader();
     reader.onload = function(e) {
@@ -839,10 +897,12 @@
               </div>
               <div style="margin-top: 8px; font-size: 0.8rem; color: #666;">${img.naturalWidth} x ${img.naturalHeight} px</div>
               <div class="ai-status" id="${id}-aistatus">
-                <span class="ai-spinner"></span> Analyse IA en cours...
+                <span class="ai-spinner"></span> Analyse IA + EXIF en cours...
               </div>
             </div>
           </div>
+
+          <div id="${id}-exif" class="exif-info" style="display:none;"></div>
 
           <div id="${id}-tags" class="detected-tags" style="margin-bottom: 16px;"></div>
 
@@ -855,21 +915,21 @@
           </div>
 
           <div class="field">
-            <label>Nom du fichier <span class="tag">SEO</span> <span class="tag-ai">IA</span></label>
+            <label>Nom du fichier <span class="tag">SEO</span> <span class="tag-ai">IA</span> <span class="tag-geo" id="${id}-geolabel" style="display:none">GPS</span></label>
             <input type="text" id="${id}-filename" value="" placeholder="Analyse en cours...">
-            <div class="hint">Nom SEO genere par IA a partir du contenu de l'image</div>
+            <div class="hint">Nom SEO genere par IA + localisation GPS</div>
           </div>
 
           <div class="field">
-            <label>Attribut alt <span class="tag">SEO</span> <span class="tag-ai">IA</span></label>
+            <label>Attribut alt <span class="tag">SEO</span> <span class="tag-ai">IA</span> <span class="tag-geo" id="${id}-geolabel2" style="display:none">GPS</span></label>
             <input type="text" id="${id}-alt" value="" placeholder="Analyse en cours...">
-            <div class="hint">Description de l'image generee par IA pour l'accessibilite et le SEO</div>
+            <div class="hint">Description de l'image pour l'accessibilite et le SEO</div>
           </div>
 
           <div class="field">
-            <label>Attribut title <span class="tag">SEO</span> <span class="tag-ai">IA</span></label>
+            <label>Attribut title <span class="tag">SEO</span> <span class="tag-ai">IA</span> <span class="tag-geo" id="${id}-geolabel3" style="display:none">GPS</span></label>
             <input type="text" id="${id}-title" value="" placeholder="Analyse en cours...">
-            <div class="hint">Texte affiche au survol, genere par IA</div>
+            <div class="hint">Texte affiche au survol</div>
           </div>
 
           <div class="seo-preview">
@@ -894,6 +954,7 @@
         const htmlPreview = document.getElementById(`${id}-htmlpreview`);
         const aiStatus = document.getElementById(`${id}-aistatus`);
         const tagsContainer = document.getElementById(`${id}-tags`);
+        const exifContainer = document.getElementById(`${id}-exif`);
 
         function updateHtmlPreview() {
           const fn = filenameInput.value || 'image';
@@ -915,25 +976,62 @@
           document.getElementById(`${id}-autolabel`).textContent = `AUTO < 1 Mo (redim. ${optResult.resized.width}x${optResult.resized.height})`;
         }
 
-        // --- AI Analysis ---
-        const imgEl = document.getElementById(`${id}-imgel`);
-        const predictions = await analyzeImage(imgEl);
-        const seo = generateSeoFromPredictions(predictions);
+        // --- Run EXIF + AI in parallel ---
+        const [exifData, predictions] = await Promise.all([
+          extractExifData(file),
+          analyzeImage(document.getElementById(`${id}-imgel`))
+        ]);
+
+        // --- Geocoding if GPS available ---
+        let geoData = null;
+        if (exifData && exifData.lat && exifData.lon) {
+          aiStatus.innerHTML = '<span class="ai-spinner"></span> Localisation GPS en cours...';
+          geoData = await reverseGeocode(exifData.lat, exifData.lon);
+        }
+
+        // --- Display EXIF info ---
+        if (exifData && (geoData || exifData.date || exifData.camera)) {
+          let exifHtml = '';
+          if (geoData && geoData.displayName) {
+            exifHtml += `<div class="exif-item location"><span class="exif-icon">📍</span><span class="exif-label">Lieu :</span><span class="exif-value">${geoData.displayName}</span></div>`;
+          }
+          if (exifData.date) {
+            exifHtml += `<div class="exif-item"><span class="exif-icon">📅</span><span class="exif-label">Date :</span><span class="exif-value">${exifData.date}</span></div>`;
+          }
+          if (exifData.camera) {
+            exifHtml += `<div class="exif-item"><span class="exif-icon">📱</span><span class="exif-label">Appareil :</span><span class="exif-value">${exifData.camera}</span></div>`;
+          }
+          exifContainer.innerHTML = exifHtml;
+          exifContainer.style.display = 'flex';
+        }
+
+        // --- Generate smart SEO ---
+        const seo = generateSmartSeo(predictions, exifData, geoData);
 
         filenameInput.value = seo.filename;
         altInput.value = seo.alt;
         titleInput.value = seo.title;
 
+        // Show GPS badge if location was used
+        if (geoData && geoData.city) {
+          document.getElementById(`${id}-geolabel`).style.display = 'inline';
+          document.getElementById(`${id}-geolabel2`).style.display = 'inline';
+          document.getElementById(`${id}-geolabel3`).style.display = 'inline';
+        }
+
+        // Display tags
         if (seo.tags && seo.tags.length > 0) {
           aiStatus.innerHTML = '&#10003; Analyse terminee';
           aiStatus.classList.add('done');
-          tagsContainer.innerHTML = seo.tags.map(t =>
-            `<span class="detected-tag">${t.translated}<span class="confidence">${t.confidence}%</span></span>`
-          ).join('');
+          tagsContainer.innerHTML = seo.tags.map(t => {
+            const cls = t.type === 'geo' ? 'detected-tag geo-tag' : 'detected-tag';
+            const icon = t.type === 'geo' ? '📍 ' : '';
+            const conf = t.confidence ? `<span class="confidence">${t.confidence}%</span>` : '';
+            return `<span class="${cls}">${icon}${t.translated}${conf}</span>`;
+          }).join('');
         } else {
           aiStatus.innerHTML = 'Analyse non disponible';
           aiStatus.classList.add('done');
-          // Fallback to filename-based
           const base = file.name.replace(/\.[^.]+$/, '').replace(/[_.\s]+/g, '-').toLowerCase();
           filenameInput.value = base;
           altInput.value = base.replace(/-/g, ' ');
