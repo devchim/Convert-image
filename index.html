@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Image to WebP - Optimiseur SEO</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f0f1a;
+      color: #e0e0e0;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 40px 20px;
+    }
+
+    h1 {
+      text-align: center;
+      font-size: 2rem;
+      margin-bottom: 8px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6, #a78bfa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: #888;
+      margin-bottom: 40px;
+      font-size: 0.95rem;
+    }
+
+    /* Loading bar */
+    .model-loading {
+      text-align: center;
+      padding: 12px;
+      margin-bottom: 20px;
+      border-radius: 10px;
+      background: #1a1a35;
+      border: 1px solid #2a2a45;
+      display: none;
+    }
+    .model-loading.active { display: block; }
+    .model-loading .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid #6366f1;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .model-loading .text { color: #aaa; font-size: 0.85rem; }
+    .model-ready {
+      text-align: center;
+      padding: 8px;
+      margin-bottom: 20px;
+      border-radius: 10px;
+      background: #1a2a1a;
+      border: 1px solid #2a4a2a;
+      display: none;
+      font-size: 0.85rem;
+      color: #34d399;
+    }
+    .model-ready.active { display: block; }
+
+    /* Drop Zone */
+    .drop-zone {
+      border: 2px dashed #3b3b5c;
+      border-radius: 16px;
+      padding: 60px 40px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.3s;
+      background: #16162a;
+      position: relative;
+    }
+
+    .drop-zone:hover,
+    .drop-zone.dragover {
+      border-color: #6366f1;
+      background: #1a1a35;
+      box-shadow: 0 0 30px rgba(99, 102, 241, 0.15);
+    }
+
+    .drop-zone-icon {
+      font-size: 3rem;
+      margin-bottom: 16px;
+      display: block;
+    }
+
+    .drop-zone-text {
+      font-size: 1.1rem;
+      color: #aaa;
+    }
+
+    .drop-zone-text span {
+      color: #6366f1;
+      text-decoration: underline;
+      cursor: pointer;
+    }
+
+    .drop-zone input[type="file"] {
+      display: none;
+    }
+
+    .formats {
+      margin-top: 12px;
+      font-size: 0.8rem;
+      color: #555;
+    }
+
+    /* Results */
+    .results {
+      display: none;
+      margin-top: 32px;
+    }
+
+    .results.active { display: block; }
+
+    .image-card {
+      background: #16162a;
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 20px;
+      border: 1px solid #2a2a45;
+    }
+
+    .image-card-header {
+      display: flex;
+      gap: 20px;
+      margin-bottom: 20px;
+      align-items: flex-start;
+    }
+
+    .preview-wrapper {
+      flex-shrink: 0;
+      width: 140px;
+      height: 140px;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #0f0f1a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .preview-wrapper img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+
+    .image-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .original-name {
+      font-size: 0.85rem;
+      color: #666;
+      margin-bottom: 4px;
+      word-break: break-all;
+    }
+
+    .size-info {
+      display: flex;
+      gap: 16px;
+      margin-top: 8px;
+      flex-wrap: wrap;
+    }
+
+    .size-badge {
+      font-size: 0.8rem;
+      padding: 4px 10px;
+      border-radius: 6px;
+      background: #1e1e38;
+    }
+
+    .size-badge.original { color: #f87171; }
+    .size-badge.webp { color: #34d399; }
+    .size-badge.savings { color: #fbbf24; }
+
+    /* AI Badge */
+    .ai-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 8px;
+      font-size: 0.8rem;
+      padding: 4px 10px;
+      border-radius: 6px;
+      background: #1e1e38;
+      color: #a78bfa;
+    }
+    .ai-status .ai-spinner {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 2px solid #a78bfa;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    .ai-status.done {
+      color: #34d399;
+      background: #1a2a1a;
+    }
+
+    /* Form Fields */
+    .field {
+      margin-bottom: 16px;
+    }
+
+    .field label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.85rem;
+      color: #999;
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+
+    .field label .tag {
+      font-size: 0.7rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: #6366f1;
+      color: white;
+      font-weight: 600;
+    }
+
+    .field label .tag-ai {
+      font-size: 0.7rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: #a78bfa;
+      color: white;
+      font-weight: 600;
+    }
+
+    .field input,
+    .field textarea {
+      width: 100%;
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid #2a2a45;
+      background: #0f0f1a;
+      color: #e0e0e0;
+      font-size: 0.95rem;
+      font-family: inherit;
+      transition: border-color 0.2s;
+    }
+
+    .field input:focus,
+    .field textarea:focus {
+      outline: none;
+      border-color: #6366f1;
+    }
+
+    .field textarea { resize: vertical; min-height: 60px; }
+
+    .field .hint {
+      font-size: 0.75rem;
+      color: #555;
+      margin-top: 4px;
+    }
+
+    /* Quality Slider */
+    .quality-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .quality-row input[type="range"] {
+      flex: 1;
+      accent-color: #6366f1;
+      height: 6px;
+      padding: 0;
+      border: none;
+      background: transparent;
+    }
+
+    .quality-value {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #6366f1;
+      min-width: 36px;
+      text-align: right;
+    }
+
+    /* Buttons */
+    .actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 20px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      padding: 10px 20px;
+      border-radius: 8px;
+      border: none;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-primary {
+      background: #6366f1;
+      color: white;
+    }
+    .btn-primary:hover { background: #4f46e5; }
+
+    .btn-secondary {
+      background: #1e1e38;
+      color: #aaa;
+      border: 1px solid #2a2a45;
+    }
+    .btn-secondary:hover { background: #2a2a45; color: #e0e0e0; }
+
+    .btn-copy {
+      background: #1e1e38;
+      color: #34d399;
+      border: 1px solid #2a4a3a;
+      font-size: 0.85rem;
+      padding: 6px 14px;
+    }
+    .btn-copy:hover { background: #1a3a2a; }
+
+    /* SEO Preview */
+    .seo-preview {
+      background: #0f0f1a;
+      border-radius: 8px;
+      padding: 16px;
+      margin-top: 16px;
+      border: 1px solid #2a2a45;
+    }
+
+    .seo-preview h4 {
+      font-size: 0.8rem;
+      color: #666;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .seo-preview code {
+      display: block;
+      font-size: 0.85rem;
+      color: #a78bfa;
+      background: #16162a;
+      padding: 12px;
+      border-radius: 6px;
+      word-break: break-all;
+      line-height: 1.5;
+    }
+
+    /* Detected tags */
+    .detected-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .detected-tag {
+      font-size: 0.75rem;
+      padding: 3px 8px;
+      border-radius: 4px;
+      background: #1e1e38;
+      color: #a78bfa;
+      border: 1px solid #3b3b5c;
+    }
+    .detected-tag .confidence {
+      color: #666;
+      margin-left: 4px;
+    }
+
+    /* Responsive */
+    @media (max-width: 600px) {
+      .image-card-header {
+        flex-direction: column;
+        align-items: center;
+      }
+      .preview-wrapper {
+        width: 120px;
+        height: 120px;
+      }
+      h1 { font-size: 1.5rem; }
+      .actions { flex-direction: column; }
+      .btn { justify-content: center; }
+    }
+
+    /* Toast */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #34d399;
+      color: #0f0f1a;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.9rem;
+      transform: translateY(80px);
+      opacity: 0;
+      transition: all 0.3s;
+      z-index: 100;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+
+    /* Multi images counter */
+    .batch-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .batch-header h3 {
+      color: #aaa;
+      font-size: 1rem;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>Image to WebP Converter</h1>
+  <p class="subtitle">Convertissez, renommez et optimisez vos images pour le SEO avec l'IA</p>
+
+  <div class="model-loading" id="modelLoading">
+    <span class="spinner"></span>
+    <span class="text">Chargement du modele IA de reconnaissance d'images...</span>
+  </div>
+  <div class="model-ready" id="modelReady">
+    IA prete - Les images seront analysees automatiquement
+  </div>
+
+  <div class="drop-zone" id="dropZone">
+    <span class="drop-zone-icon">🖼️</span>
+    <p class="drop-zone-text">Glissez vos images ici ou <span id="browseBtn">parcourez</span></p>
+    <p class="formats">JPG, PNG, GIF, BMP, SVG, AVIF, TIFF</p>
+    <input type="file" id="fileInput" multiple accept="image/*">
+  </div>
+
+  <div class="results" id="results">
+    <div class="batch-header">
+      <h3 id="batchTitle"></h3>
+      <button class="btn btn-secondary" id="clearAll">Tout effacer</button>
+    </div>
+    <div id="cardsContainer"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const dropZone = document.getElementById('dropZone');
+  const fileInput = document.getElementById('fileInput');
+  const results = document.getElementById('results');
+  const cardsContainer = document.getElementById('cardsContainer');
+  const batchTitle = document.getElementById('batchTitle');
+  const toast = document.getElementById('toast');
+
+  // ---- AI Model ----
+  let model = null;
+  let modelLoading = false;
+
+  // Translation map for common MobileNet labels
+  const labelTranslations = {
+    // Animals
+    'tabby': 'chat tigre', 'tabby cat': 'chat tigre', 'tiger cat': 'chat tigre',
+    'Persian cat': 'chat persan', 'Siamese cat': 'chat siamois', 'Egyptian cat': 'chat egyptien',
+    'cat': 'chat', 'kitten': 'chaton',
+    'golden retriever': 'golden retriever', 'Labrador retriever': 'labrador',
+    'German shepherd': 'berger allemand', 'pug': 'carlin', 'beagle': 'beagle',
+    'dog': 'chien', 'puppy': 'chiot', 'French bulldog': 'bouledogue francais',
+    'bird': 'oiseau', 'fish': 'poisson', 'shark': 'requin', 'whale': 'baleine',
+    'horse': 'cheval', 'elephant': 'elephant', 'lion': 'lion', 'tiger': 'tigre',
+    'bear': 'ours', 'rabbit': 'lapin', 'deer': 'cerf', 'butterfly': 'papillon',
+    'bee': 'abeille', 'ant': 'fourmi', 'spider': 'araignee', 'snake': 'serpent',
+    'turtle': 'tortue', 'frog': 'grenouille', 'monkey': 'singe', 'penguin': 'pingouin',
+    'parrot': 'perroquet', 'eagle': 'aigle', 'owl': 'hibou', 'duck': 'canard',
+    'hen': 'poule', 'rooster': 'coq', 'peacock': 'paon', 'flamingo': 'flamant rose',
+    'jellyfish': 'meduse', 'starfish': 'etoile de mer', 'crab': 'crabe',
+    'lobster': 'homard', 'snail': 'escargot', 'cow': 'vache', 'pig': 'cochon',
+    'sheep': 'mouton', 'goat': 'chevre', 'zebra': 'zebre', 'giraffe': 'girafe',
+    'panda': 'panda', 'koala': 'koala', 'wolf': 'loup', 'fox': 'renard',
+    'hamster': 'hamster', 'squirrel': 'ecureuil', 'hedgehog': 'herisson',
+    'dolphin': 'dauphin', 'octopus': 'pieuvre', 'goldfish': 'poisson rouge',
+    'leopard': 'leopard', 'cheetah': 'guepard', 'gorilla': 'gorille',
+    'hippopotamus': 'hippopotame', 'rhinoceros': 'rhinoceros', 'camel': 'chameau',
+    'crocodile': 'crocodile', 'alligator': 'alligator', 'iguana': 'iguane',
+    'chameleon': 'cameleon', 'salamander': 'salamandre', 'scorpion': 'scorpion',
+    'cockroach': 'cafard', 'dragonfly': 'libellule', 'ladybug': 'coccinelle',
+    'caterpillar': 'chenille', 'moth': 'papillon de nuit', 'wasp': 'guepe',
+    'mosquito': 'moustique', 'grasshopper': 'sauterelle', 'cricket': 'grillon',
+
+    // Food
+    'pizza': 'pizza', 'hamburger': 'hamburger', 'cheeseburger': 'cheeseburger',
+    'hot dog': 'hot dog', 'French loaf': 'baguette de pain', 'bagel': 'bagel',
+    'pretzel': 'bretzel', 'espresso': 'espresso', 'cup': 'tasse',
+    'ice cream': 'glace', 'chocolate sauce': 'sauce chocolat',
+    'banana': 'banane', 'apple': 'pomme', 'orange': 'orange', 'lemon': 'citron',
+    'pineapple': 'ananas', 'strawberry': 'fraise', 'fig': 'figue',
+    'pomegranate': 'grenade', 'mushroom': 'champignon', 'broccoli': 'brocoli',
+    'cauliflower': 'chou-fleur', 'cucumber': 'concombre', 'bell pepper': 'poivron',
+    'corn': 'mais', 'plate': 'assiette', 'bowl': 'bol', 'pot': 'casserole',
+    'wine bottle': 'bouteille de vin', 'beer glass': 'verre de biere',
+    'coffee mug': 'tasse de cafe', 'teapot': 'theiere',
+    'meat loaf': 'pain de viande', 'guacamole': 'guacamole', 'burrito': 'burrito',
+    'taco': 'taco', 'sushi': 'sushi', 'soup bowl': 'bol de soupe',
+
+    // Vehicles
+    'sports car': 'voiture de sport', 'race car': 'voiture de course',
+    'limousine': 'limousine', 'minivan': 'monospace', 'ambulance': 'ambulance',
+    'fire engine': 'camion de pompiers', 'school bus': 'bus scolaire',
+    'trolleybus': 'trolleybus', 'cab': 'taxi', 'convertible': 'cabriolet',
+    'jeep': 'jeep', 'pickup': 'pick-up', 'trailer truck': 'camion remorque',
+    'moving van': 'camion de demenagement', 'police van': 'fourgon de police',
+    'bicycle': 'velo', 'mountain bike': 'velo de montagne', 'motor scooter': 'scooter',
+    'motorcycle': 'moto', 'speedboat': 'bateau rapide', 'sailboat': 'voilier',
+    'canoe': 'canoe', 'yacht': 'yacht', 'gondola': 'gondole',
+    'aircraft carrier': 'porte-avions', 'airliner': 'avion de ligne',
+    'warplane': 'avion de guerre', 'hot air balloon': 'montgolfiere',
+    'space shuttle': 'navette spatiale', 'steam locomotive': 'locomotive a vapeur',
+    'bullet train': 'train a grande vitesse', 'freight car': 'wagon de marchandises',
+    'car': 'voiture', 'truck': 'camion', 'bus': 'bus', 'train': 'train',
+    'boat': 'bateau', 'airplane': 'avion', 'helicopter': 'helicoptere',
+    'rocket': 'fusee', 'submarine': 'sous-marin', 'tractor': 'tracteur',
+
+    // Tech
+    'laptop': 'ordinateur portable', 'desktop computer': 'ordinateur de bureau',
+    'notebook': 'ordinateur portable', 'keyboard': 'clavier', 'mouse': 'souris',
+    'monitor': 'ecran', 'screen': 'ecran', 'television': 'television',
+    'cellular telephone': 'telephone portable', 'cell phone': 'telephone portable',
+    'smartphone': 'smartphone', 'tablet': 'tablette', 'iPod': 'iPod',
+    'remote control': 'telecommande', 'joystick': 'joystick', 'printer': 'imprimante',
+    'scanner': 'scanner', 'speaker': 'haut-parleur', 'headphone': 'casque audio',
+    'microphone': 'microphone', 'camera': 'appareil photo', 'web site': 'site web',
+    'projector': 'projecteur', 'hard disc': 'disque dur', 'USB': 'cle USB',
+    'modem': 'modem', 'router': 'routeur',
+
+    // Nature / Places
+    'beach': 'plage', 'mountain': 'montagne', 'volcano': 'volcan',
+    'valley': 'vallee', 'cliff': 'falaise', 'coral reef': 'recif corallien',
+    'lakeside': 'bord de lac', 'seashore': 'bord de mer', 'promontory': 'promontoire',
+    'sandbar': 'banc de sable', 'ocean': 'ocean', 'river': 'riviere',
+    'waterfall': 'cascade', 'forest': 'foret', 'jungle': 'jungle',
+    'desert': 'desert', 'garden': 'jardin', 'park': 'parc',
+    'field': 'champ', 'meadow': 'prairie', 'sunset': 'coucher de soleil',
+    'sunrise': 'lever de soleil', 'sky': 'ciel', 'cloud': 'nuage',
+    'rainbow': 'arc-en-ciel', 'snow': 'neige', 'rain': 'pluie',
+    'flower': 'fleur', 'tree': 'arbre', 'leaf': 'feuille',
+    'daisy': 'marguerite', 'rose': 'rose', 'sunflower': 'tournesol',
+    'tulip': 'tulipe', 'lotus': 'lotus',
+
+    // Buildings
+    'church': 'eglise', 'castle': 'chateau', 'palace': 'palais',
+    'mosque': 'mosquee', 'monastery': 'monastere', 'library': 'bibliotheque',
+    'cinema': 'cinema', 'restaurant': 'restaurant', 'barbershop': 'salon de coiffure',
+    'bookshop': 'librairie', 'grocery store': 'epicerie', 'bakery': 'boulangerie',
+    'bridge': 'pont', 'dam': 'barrage', 'fountain': 'fontaine',
+    'lighthouse': 'phare', 'barn': 'grange', 'greenhouse': 'serre',
+    'dome': 'dome', 'tower': 'tour', 'skyscraper': 'gratte-ciel',
+    'house': 'maison', 'building': 'batiment', 'office': 'bureau',
+    'school': 'ecole', 'hospital': 'hopital', 'hotel': 'hotel',
+    'stadium': 'stade', 'museum': 'musee', 'airport': 'aeroport',
+
+    // Objects
+    'umbrella': 'parapluie', 'sunglasses': 'lunettes de soleil',
+    'backpack': 'sac a dos', 'handbag': 'sac a main', 'suitcase': 'valise',
+    'wallet': 'portefeuille', 'watch': 'montre', 'clock': 'horloge',
+    'lamp': 'lampe', 'candle': 'bougie', 'vase': 'vase', 'mirror': 'miroir',
+    'pillow': 'oreiller', 'blanket': 'couverture', 'towel': 'serviette',
+    'soap': 'savon', 'toothbrush': 'brosse a dents', 'comb': 'peigne',
+    'scissors': 'ciseaux', 'hammer': 'marteau', 'screwdriver': 'tournevis',
+    'wrench': 'cle anglaise', 'nail': 'clou', 'shovel': 'pelle',
+    'broom': 'balai', 'bucket': 'seau', 'chain': 'chaine', 'lock': 'cadenas',
+    'key': 'cle', 'bell': 'cloche', 'trophy': 'trophee', 'medal': 'medaille',
+    'book': 'livre', 'newspaper': 'journal', 'envelope': 'enveloppe',
+    'pen': 'stylo', 'pencil': 'crayon', 'paintbrush': 'pinceau',
+    'ruler': 'regle', 'globe': 'globe', 'map': 'carte',
+    'guitar': 'guitare', 'piano': 'piano', 'violin': 'violon', 'drum': 'tambour',
+    'flute': 'flute', 'trumpet': 'trompette', 'harp': 'harpe',
+    'ball': 'ballon', 'basketball': 'ballon de basket', 'football': 'ballon de football',
+    'tennis ball': 'balle de tennis', 'baseball': 'balle de baseball',
+    'golf ball': 'balle de golf', 'soccer ball': 'ballon de foot',
+    'racket': 'raquette', 'tennis racket': 'raquette de tennis',
+    'ski': 'ski', 'snowboard': 'snowboard', 'surfboard': 'planche de surf',
+    'skateboard': 'skateboard', 'dumbbell': 'haltere',
+    'chair': 'chaise', 'table': 'table', 'desk': 'bureau',
+    'sofa': 'canape', 'bed': 'lit', 'wardrobe': 'armoire', 'shelf': 'etagere',
+    'bathtub': 'baignoire', 'shower': 'douche', 'toilet': 'toilettes',
+    'sink': 'evier', 'stove': 'cuisiniere', 'oven': 'four',
+    'refrigerator': 'refrigerateur', 'dishwasher': 'lave-vaisselle',
+    'washing machine': 'machine a laver', 'iron': 'fer a repasser',
+    'fan': 'ventilateur', 'air conditioner': 'climatiseur',
+
+    // People / Clothing
+    'suit': 'costume', 'dress': 'robe', 'shirt': 'chemise', 'jeans': 'jean',
+    'jacket': 'veste', 'coat': 'manteau', 'sweater': 'pull',
+    'hat': 'chapeau', 'cap': 'casquette', 'scarf': 'echarpe',
+    'glove': 'gant', 'shoe': 'chaussure', 'boot': 'botte',
+    'sandal': 'sandale', 'sneaker': 'basket', 'tie': 'cravate',
+    'bow tie': 'noeud papillon', 'ring': 'bague', 'necklace': 'collier',
+    'bracelet': 'bracelet', 'earring': 'boucle d\'oreille',
+    'mask': 'masque', 'wig': 'perruque',
+    'jean': 'jean', 'bikini': 'bikini', 'swimming trunks': 'maillot de bain',
+    'jersey': 'maillot',
+  };
+
+  function translateLabel(label) {
+    const lower = label.toLowerCase().trim();
+    // Check exact match
+    for (const [en, fr] of Object.entries(labelTranslations)) {
+      if (lower === en.toLowerCase()) return fr;
+    }
+    // Check if label contains a known term
+    for (const [en, fr] of Object.entries(labelTranslations)) {
+      if (lower.includes(en.toLowerCase())) return fr;
+    }
+    // Return cleaned original
+    return lower.replace(/,/g, '').trim();
+  }
+
+  async function loadModel() {
+    if (model) return model;
+    if (modelLoading) return null;
+    modelLoading = true;
+    document.getElementById('modelLoading').classList.add('active');
+    try {
+      model = await mobilenet.load({ version: 2, alpha: 1.0 });
+      document.getElementById('modelLoading').classList.remove('active');
+      document.getElementById('modelReady').classList.add('active');
+      setTimeout(() => document.getElementById('modelReady').classList.remove('active'), 3000);
+      return model;
+    } catch (err) {
+      console.error('Erreur chargement modele:', err);
+      document.getElementById('modelLoading').classList.remove('active');
+      modelLoading = false;
+      return null;
+    }
+  }
+
+  async function analyzeImage(imgElement) {
+    const m = await loadModel();
+    if (!m) return null;
+    try {
+      const predictions = await m.classify(imgElement, 5);
+      return predictions.filter(p => p.probability > 0.05);
+    } catch (err) {
+      console.error('Erreur analyse:', err);
+      return null;
+    }
+  }
+
+  function generateSeoFromPredictions(predictions) {
+    if (!predictions || predictions.length === 0) {
+      return { filename: 'image', alt: 'Image', title: 'Image', tags: [] };
+    }
+
+    const tags = predictions.map(p => ({
+      label: p.className,
+      translated: translateLabel(p.className),
+      confidence: Math.round(p.probability * 100)
+    }));
+
+    // Use top predictions for naming
+    const mainLabels = tags.slice(0, 3).map(t => t.translated);
+
+    // SEO filename: lowercase, hyphens
+    const filename = mainLabels
+      .join('-')
+      .toLowerCase()
+      .replace(/[^a-z0-9\u00C0-\u024F-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .substring(0, 60);
+
+    // Alt: descriptive sentence
+    const mainItem = tags[0].translated;
+    const mainItemCapitalized = mainItem.charAt(0).toUpperCase() + mainItem.slice(1);
+    let alt;
+    if (tags.length >= 2) {
+      const secondary = tags.slice(1, 3).map(t => t.translated).join(' et ');
+      alt = `${mainItemCapitalized} - ${secondary}`;
+    } else {
+      alt = mainItemCapitalized;
+    }
+
+    // Title: slightly different, more descriptive
+    const title = `Photo de ${mainItem}${tags.length > 1 ? ' - ' + tags[1].translated : ''}`;
+
+    return { filename, alt, title, tags };
+  }
+
+  // ---- Start loading model immediately ----
+  loadModel();
+
+  // Drop zone events
+  ['dragenter', 'dragover'].forEach(e => {
+    dropZone.addEventListener(e, ev => { ev.preventDefault(); dropZone.classList.add('dragover'); });
+  });
+  ['dragleave', 'drop'].forEach(e => {
+    dropZone.addEventListener(e, ev => { ev.preventDefault(); dropZone.classList.remove('dragover'); });
+  });
+  dropZone.addEventListener('drop', e => handleFiles(e.dataTransfer.files));
+  document.getElementById('browseBtn').addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('click', (e) => {
+    if (e.target === dropZone || e.target.classList.contains('drop-zone-icon') || e.target.classList.contains('formats'))
+      fileInput.click();
+  });
+  fileInput.addEventListener('change', () => handleFiles(fileInput.files));
+  document.getElementById('clearAll').addEventListener('click', () => {
+    cardsContainer.innerHTML = '';
+    results.classList.remove('active');
+  });
+
+  function handleFiles(files) {
+    if (!files.length) return;
+    results.classList.add('active');
+    const total = cardsContainer.children.length + files.length;
+    batchTitle.textContent = `${total} image${total > 1 ? 's' : ''} chargee${total > 1 ? 's' : ''}`;
+    Array.from(files).forEach(file => processImage(file));
+    fileInput.value = '';
+  }
+
+  function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' o';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' Ko';
+    return (bytes / 1048576).toFixed(1) + ' Mo';
+  }
+
+  // Auto-optimize: find best quality that keeps file under 1MB
+  async function findOptimalQuality(img, maxBytes = 1000000) {
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+
+    // Start at 80, check if under 1MB
+    let quality = 80;
+    let blob = await new Promise(r => canvas.toBlob(r, 'image/webp', quality / 100));
+
+    if (blob && blob.size <= maxBytes) return { quality, blob };
+
+    // Binary search for optimal quality
+    let lo = 10, hi = 75;
+    let bestQuality = 10;
+    let bestBlob = null;
+
+    while (lo <= hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      blob = await new Promise(r => canvas.toBlob(r, 'image/webp', mid / 100));
+      if (blob && blob.size <= maxBytes) {
+        bestQuality = mid;
+        bestBlob = blob;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+
+    // If even quality 10 is too big, try resizing
+    if (!bestBlob) {
+      let scale = 0.9;
+      while (scale > 0.2) {
+        const w = Math.round(img.naturalWidth * scale);
+        const h = Math.round(img.naturalHeight * scale);
+        canvas.width = w;
+        canvas.height = h;
+        ctx.drawImage(img, 0, 0, w, h);
+        blob = await new Promise(r => canvas.toBlob(r, 'image/webp', 0.5));
+        if (blob && blob.size <= maxBytes) {
+          return { quality: 50, blob, resized: { width: w, height: h } };
+        }
+        scale -= 0.1;
+      }
+      // Fallback
+      return { quality: 10, blob };
+    }
+
+    return { quality: bestQuality, blob: bestBlob };
+  }
+
+  function convertToWebP(img, quality) {
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    return new Promise(resolve => {
+      canvas.toBlob(blob => resolve(blob), 'image/webp', quality / 100);
+    });
+  }
+
+  function processImage(file) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = async function() {
+        const id = 'card-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
+
+        const card = document.createElement('div');
+        card.className = 'image-card';
+        card.id = id;
+        card.innerHTML = `
+          <div class="image-card-header">
+            <div class="preview-wrapper">
+              <img src="${e.target.result}" alt="preview" id="${id}-imgel">
+            </div>
+            <div class="image-info">
+              <div class="original-name">Original : ${file.name}</div>
+              <div class="size-info">
+                <span class="size-badge original">Original : ${formatSize(file.size)}</span>
+                <span class="size-badge webp" id="${id}-webpsize">WebP : optimisation...</span>
+                <span class="size-badge savings" id="${id}-savings">...</span>
+              </div>
+              <div style="margin-top: 8px; font-size: 0.8rem; color: #666;">${img.naturalWidth} x ${img.naturalHeight} px</div>
+              <div class="ai-status" id="${id}-aistatus">
+                <span class="ai-spinner"></span> Analyse IA en cours...
+              </div>
+            </div>
+          </div>
+
+          <div id="${id}-tags" class="detected-tags" style="margin-bottom: 16px;"></div>
+
+          <div class="field">
+            <label>Qualite WebP <span class="tag" id="${id}-autolabel">AUTO &lt; 1 Mo</span></label>
+            <div class="quality-row">
+              <input type="range" min="1" max="100" value="80" id="${id}-quality">
+              <span class="quality-value" id="${id}-qualval">80%</span>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>Nom du fichier <span class="tag">SEO</span> <span class="tag-ai">IA</span></label>
+            <input type="text" id="${id}-filename" value="" placeholder="Analyse en cours...">
+            <div class="hint">Nom SEO genere par IA a partir du contenu de l'image</div>
+          </div>
+
+          <div class="field">
+            <label>Attribut alt <span class="tag">SEO</span> <span class="tag-ai">IA</span></label>
+            <input type="text" id="${id}-alt" value="" placeholder="Analyse en cours...">
+            <div class="hint">Description de l'image generee par IA pour l'accessibilite et le SEO</div>
+          </div>
+
+          <div class="field">
+            <label>Attribut title <span class="tag">SEO</span> <span class="tag-ai">IA</span></label>
+            <input type="text" id="${id}-title" value="" placeholder="Analyse en cours...">
+            <div class="hint">Texte affiche au survol, genere par IA</div>
+          </div>
+
+          <div class="seo-preview">
+            <h4>Apercu HTML</h4>
+            <code id="${id}-htmlpreview"></code>
+          </div>
+
+          <div class="actions">
+            <button class="btn btn-primary" id="${id}-download">Telecharger WebP</button>
+            <button class="btn btn-copy" id="${id}-copyhtml">Copier le HTML</button>
+            <button class="btn btn-secondary" id="${id}-remove">Supprimer</button>
+          </div>
+        `;
+
+        cardsContainer.appendChild(card);
+
+        const qualitySlider = document.getElementById(`${id}-quality`);
+        const qualVal = document.getElementById(`${id}-qualval`);
+        const filenameInput = document.getElementById(`${id}-filename`);
+        const altInput = document.getElementById(`${id}-alt`);
+        const titleInput = document.getElementById(`${id}-title`);
+        const htmlPreview = document.getElementById(`${id}-htmlpreview`);
+        const aiStatus = document.getElementById(`${id}-aistatus`);
+        const tagsContainer = document.getElementById(`${id}-tags`);
+
+        function updateHtmlPreview() {
+          const fn = filenameInput.value || 'image';
+          const alt = altInput.value;
+          const title = titleInput.value;
+          htmlPreview.textContent = `<img src="${fn}.webp" alt="${alt}" title="${title}" width="${img.naturalWidth}" height="${img.naturalHeight}" loading="lazy">`;
+        }
+
+        // --- Auto-optimize to < 1MB ---
+        const optResult = await findOptimalQuality(img);
+        qualitySlider.value = optResult.quality;
+        qualVal.textContent = optResult.quality + '%';
+        if (optResult.blob) {
+          document.getElementById(`${id}-webpsize`).textContent = `WebP : ${formatSize(optResult.blob.size)}`;
+          const savings = ((1 - optResult.blob.size / file.size) * 100).toFixed(0);
+          document.getElementById(`${id}-savings`).textContent = `${savings > 0 ? '-' : '+'}${Math.abs(savings)}%`;
+        }
+        if (optResult.resized) {
+          document.getElementById(`${id}-autolabel`).textContent = `AUTO < 1 Mo (redim. ${optResult.resized.width}x${optResult.resized.height})`;
+        }
+
+        // --- AI Analysis ---
+        const imgEl = document.getElementById(`${id}-imgel`);
+        const predictions = await analyzeImage(imgEl);
+        const seo = generateSeoFromPredictions(predictions);
+
+        filenameInput.value = seo.filename;
+        altInput.value = seo.alt;
+        titleInput.value = seo.title;
+
+        if (seo.tags && seo.tags.length > 0) {
+          aiStatus.innerHTML = '&#10003; Analyse terminee';
+          aiStatus.classList.add('done');
+          tagsContainer.innerHTML = seo.tags.map(t =>
+            `<span class="detected-tag">${t.translated}<span class="confidence">${t.confidence}%</span></span>`
+          ).join('');
+        } else {
+          aiStatus.innerHTML = 'Analyse non disponible';
+          aiStatus.classList.add('done');
+          // Fallback to filename-based
+          const base = file.name.replace(/\.[^.]+$/, '').replace(/[_.\s]+/g, '-').toLowerCase();
+          filenameInput.value = base;
+          altInput.value = base.replace(/-/g, ' ');
+          titleInput.value = base.replace(/-/g, ' ');
+        }
+
+        updateHtmlPreview();
+
+        // Events
+        async function updateWebPSize() {
+          const blob = await convertToWebP(img, parseInt(qualitySlider.value));
+          if (!blob) return;
+          document.getElementById(`${id}-webpsize`).textContent = `WebP : ${formatSize(blob.size)}`;
+          const savings = ((1 - blob.size / file.size) * 100).toFixed(0);
+          document.getElementById(`${id}-savings`).textContent = `${savings > 0 ? '-' : '+'}${Math.abs(savings)}%`;
+        }
+
+        qualitySlider.addEventListener('input', () => {
+          qualVal.textContent = qualitySlider.value + '%';
+          document.getElementById(`${id}-autolabel`).textContent = 'MANUEL';
+          updateWebPSize();
+        });
+
+        [filenameInput, altInput, titleInput].forEach(input => {
+          input.addEventListener('input', updateHtmlPreview);
+        });
+
+        document.getElementById(`${id}-download`).addEventListener('click', async () => {
+          const blob = await convertToWebP(img, parseInt(qualitySlider.value));
+          if (!blob) return;
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = (filenameInput.value || 'image') + '.webp';
+          a.click();
+          URL.revokeObjectURL(url);
+          showToast('Image WebP telechargee !');
+        });
+
+        document.getElementById(`${id}-copyhtml`).addEventListener('click', () => {
+          navigator.clipboard.writeText(htmlPreview.textContent).then(() => {
+            showToast('HTML copie !');
+          });
+        });
+
+        document.getElementById(`${id}-remove`).addEventListener('click', () => {
+          card.remove();
+          const remaining = cardsContainer.children.length;
+          if (!remaining) results.classList.remove('active');
+          else batchTitle.textContent = `${remaining} image${remaining > 1 ? 's' : ''} chargee${remaining > 1 ? 's' : ''}`;
+        });
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 2000);
+  }
+</script>
+
+</body>
+</html>
