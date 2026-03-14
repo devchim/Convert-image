@@ -1311,19 +1311,26 @@
           document.getElementById(`${id}-autolabel`).textContent = `AUTO < 1 Mo (redim. ${optResult.resized.width}x${optResult.resized.height})`;
         }
 
-        // --- Run EXIF + AI + Google Vision in parallel ---
-        aiStatus.innerHTML = '<span class="ai-spinner"></span> Analyse IA + Google Vision + EXIF...';
-        const [exifData, predictions, visionData] = await Promise.all([
+        // --- Step 1: Run EXIF + MobileNet (local AI) in parallel ---
+        aiStatus.innerHTML = '<span class="ai-spinner"></span> Analyse IA + EXIF en cours...';
+        const [exifData, predictions] = await Promise.all([
           extractExifData(file),
-          analyzeImage(document.getElementById(`${id}-imgel`)),
-          analyzeWithGoogleVision(file)
+          analyzeImage(document.getElementById(`${id}-imgel`))
         ]);
 
-        // --- Geocoding if GPS available ---
+        // --- Step 2: If GPS found, run geocoding + Google Vision API ---
         let geoData = null;
-        if (exifData && exifData.lat && exifData.lon) {
-          aiStatus.innerHTML = '<span class="ai-spinner"></span> Localisation GPS en cours...';
-          geoData = await reverseGeocode(exifData.lat, exifData.lon);
+        let visionData = null;
+        const hasGps = exifData && exifData.lat && exifData.lon;
+
+        if (hasGps) {
+          aiStatus.innerHTML = '<span class="ai-spinner"></span> GPS detecte - Google Vision + localisation...';
+          const [geo, vision] = await Promise.all([
+            reverseGeocode(exifData.lat, exifData.lon),
+            analyzeWithGoogleVision(file)
+          ]);
+          geoData = geo;
+          visionData = vision;
         }
 
         // --- Display EXIF info ---
@@ -1384,7 +1391,7 @@
           }
         });
 
-        suggestionsEl.addEventListener('click', (ev) => {
+        suggestionsEl.addEventListener('click', async (ev) => {
           const item = ev.target.closest('.location-suggestion');
           if (!item) return;
           const idx = parseInt(item.dataset.index);
@@ -1394,7 +1401,14 @@
           locationInput.style.borderColor = '#34d399';
           suggestionsEl.classList.remove('active');
 
-          // Regenerate SEO with city
+          // Call Google Vision API when city is manually selected
+          if (!visionData) {
+            aiStatus.innerHTML = '<span class="ai-spinner"></span> Ville selectionnee - analyse Google Vision...';
+            aiStatus.classList.remove('done');
+            visionData = await analyzeWithGoogleVision(file);
+          }
+
+          // Regenerate SEO with city + vision data
           const newSeo = generateSmartSeo(predictions, exifData, geoData, city, visionData);
           filenameInput.value = newSeo.filename;
           altInput.value = newSeo.alt;
@@ -1414,6 +1428,10 @@
             return `<span class="${cls}">${icon}${t.translated}${conf}</span>`;
           }).join('');
 
+          const sourceLabel = visionData ? 'Google Vision' : 'MobileNet';
+          aiStatus.innerHTML = `&#10003; Analyse terminee (${sourceLabel})`;
+          aiStatus.classList.add('done');
+
           // Show GPS badges
           document.getElementById(`${id}-geolabel`).style.display = 'inline';
           document.getElementById(`${id}-geolabel2`).style.display = 'inline';
@@ -1431,8 +1449,9 @@
 
         // Display tags
         if (seo.tags && seo.tags.length > 0) {
-          const sourceLabel = visionData ? 'Google Vision' : 'MobileNet';
-          aiStatus.innerHTML = `&#10003; Analyse terminee (${sourceLabel})`;
+          const sourceLabel = visionData ? 'Google Vision + MobileNet' : 'MobileNet';
+          const hint = !visionData ? ' - selectionnez une ville pour activer Google Vision' : '';
+          aiStatus.innerHTML = `&#10003; Analyse terminee (${sourceLabel})${hint}`;
           aiStatus.classList.add('done');
           tagsContainer.innerHTML = seo.tags.map(t => {
             let cls = 'detected-tag';
