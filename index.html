@@ -1365,26 +1365,25 @@
           document.getElementById(`${id}-autolabel`).textContent = `AUTO < 1 Mo (redim. ${optResult.resized.width}x${optResult.resized.height})`;
         }
 
-        // --- Step 1: Run EXIF + MobileNet (local AI) in parallel ---
-        aiStatus.innerHTML = '<span class="ai-spinner"></span> Analyse IA + EXIF en cours...';
-        const [exifData, predictions] = await Promise.all([
+        // --- Step 1: Run EXIF + MobileNet + Google Vision in parallel ---
+        aiStatus.innerHTML = '<span class="ai-spinner"></span> Analyse IA (Google Vision + MobileNet) en cours...';
+        const [exifData, predictions, visionData] = await Promise.all([
           extractExifData(file),
-          analyzeImage(document.getElementById(`${id}-imgel`))
+          analyzeImage(document.getElementById(`${id}-imgel`)),
+          analyzeWithGoogleVision(file)
         ]);
 
-        // --- Step 2: If GPS found, run geocoding + Google Vision API ---
+        // --- Step 2: If GPS found, run geocoding ---
         let geoData = null;
-        let visionData = null;
         const hasGps = exifData && exifData.lat && exifData.lon;
 
         if (hasGps) {
-          aiStatus.innerHTML = '<span class="ai-spinner"></span> GPS detecte - Google Vision + localisation...';
-          const [geo, vision] = await Promise.all([
-            reverseGeocode(exifData.lat, exifData.lon),
-            analyzeWithGoogleVision(file)
-          ]);
-          geoData = geo;
-          visionData = vision;
+          aiStatus.innerHTML = '<span class="ai-spinner"></span> GPS detecte - localisation en cours...';
+          geoData = await reverseGeocode(exifData.lat, exifData.lon);
+        } else if (visionData && visionData.location) {
+          // Use location from Vision API landmark detection
+          aiStatus.innerHTML = '<span class="ai-spinner"></span> Lieu detecte par Google Vision...';
+          geoData = await reverseGeocode(visionData.location.lat, visionData.location.lon);
         }
 
         // --- Display EXIF info ---
@@ -1455,13 +1454,6 @@
           locationInput.style.borderColor = '#34d399';
           suggestionsEl.classList.remove('active');
 
-          // Call Google Vision API when city is manually selected
-          if (!visionData) {
-            aiStatus.innerHTML = '<span class="ai-spinner"></span> Ville selectionnee - analyse Google Vision...';
-            aiStatus.classList.remove('done');
-            visionData = await analyzeWithGoogleVision(file);
-          }
-
           // Regenerate SEO with city + vision data
           const newSeo = generateSmartSeo(predictions, exifData, geoData, city, visionData);
           filenameInput.value = newSeo.filename;
@@ -1482,7 +1474,7 @@
             return `<span class="${cls}">${icon}${t.translated}${conf}</span>`;
           }).join('');
 
-          const sourceLabel = visionData ? 'Google Vision' : 'MobileNet';
+          const sourceLabel = visionData ? 'Google Vision + lieu' : 'MobileNet + lieu';
           aiStatus.innerHTML = `&#10003; Analyse terminee (${sourceLabel})`;
           aiStatus.classList.add('done');
 
@@ -1503,9 +1495,8 @@
 
         // Display tags
         if (seo.tags && seo.tags.length > 0) {
-          const sourceLabel = visionData ? 'Google Vision + MobileNet' : 'MobileNet';
-          const hint = !visionData ? ' - selectionnez une ville pour activer Google Vision' : '';
-          aiStatus.innerHTML = `&#10003; Analyse terminee (${sourceLabel})${hint}`;
+          const sourceLabel = visionData ? 'Google Vision' : 'MobileNet';
+          aiStatus.innerHTML = `&#10003; Analyse terminee (${sourceLabel})`;
           aiStatus.classList.add('done');
           tagsContainer.innerHTML = seo.tags.map(t => {
             let cls = 'detected-tag';
@@ -1519,7 +1510,7 @@
             return `<span class="${cls}">${icon}${t.translated}${conf}</span>`;
           }).join('');
         } else {
-          aiStatus.innerHTML = 'Analyse non disponible - utilisez le selecteur de ville';
+          aiStatus.innerHTML = 'Analyse non disponible';
           aiStatus.classList.add('done');
           // Don't use hash filenames - use generic clean name
           const base = file.name.replace(/\.[^.]+$/, '').replace(/[_.\s]+/g, '-').toLowerCase();
